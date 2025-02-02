@@ -934,13 +934,16 @@ namespace xr {
                 [renderEncoder endEncoding];
                 
                 [currentCommandBuffer addCompletedHandler:^(id<MTLCommandBuffer>) {
-                    if (cameraTextureY != nil) {
-                        [cameraTextureY setPurgeableState:MTLPurgeableStateEmpty];
-                    }
-
-                    if (cameraTextureCbCr != nil) {
-                        [cameraTextureCbCr setPurgeableState:MTLPurgeableStateEmpty];
-                    }
+                    id<MTLCommandBuffer> cleanupCommandBuffer = [commandQueue commandBuffer];
+                    [cleanupCommandBuffer addCompletedHandler:^(id<MTLCommandBuffer>) {
+                        if (cameraTextureY != nil && cameraTextureY.allocatedSize > 0) {
+                            [cameraTextureY setPurgeableState:MTLPurgeableStateEmpty];
+                        }
+                        if (cameraTextureCbCr != nil && cameraTextureCbCr.allocatedSize > 0) {
+                            [cameraTextureCbCr setPurgeableState:MTLPurgeableStateEmpty];
+                        }
+                    }];
+                    [cleanupCommandBuffer commit];
                 }];
             }
 
