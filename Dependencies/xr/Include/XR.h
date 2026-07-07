@@ -360,6 +360,17 @@ namespace xr
                 ~Frame();
 
                 void GetHitTestResults(std::vector<HitResult>&, Ray, HitTestTrackableType) const;
+                // WebXR raw camera access: synchronous CPU readback of the camera
+                // image for the given view. Returns false when no camera texture is
+                // available or the backend does not support readback. Intended for
+                // sparse use (e.g. VPS localization sending camera pixels to a pose
+                // service) — the readback stalls the calling thread for the GPU copy
+                // (~ms), not for per-frame use.
+                // downsample: box-average by this factor (1 = full resolution).
+                // grayscale: output 1 byte/pixel luma instead of BGRA8. Both
+                // conversions run natively — the embedder's JS engine may not JIT,
+                // making per-pixel JS loops orders of magnitude slower.
+                bool TryReadCameraPixels(uint32_t viewIndex, std::vector<uint8_t>& outPixels, size_t& outWidth, size_t& outHeight, uint32_t downsample = 1, bool grayscale = false) const;
                 Anchor CreateAnchor(Pose, NativeAnchorPtr) const;
                 Anchor DeclareAnchor(NativeAnchorPtr) const;
                 void UpdateAnchor(Anchor&) const;

@@ -1445,6 +1445,96 @@ namespace xr {
             // ARTrackingStateNormal.
             return SystemImpl.XrContext->Frame.camera.trackingState == ARTrackingState::ARTrackingStateNormal;
         }
+
+        // WebXR raw camera access: synchronous CPU readback of the per-view camera
+        // image. Blits on the session command queue so FIFO ordering guarantees
+        // this frame's YUV->RGB pass has completed. Optional native box-downsample
+        // and grayscale conversion (per-pixel work must not run in JS: JSC in an
+        // embedded app has no JIT, so JS pixel loops are ~50x slower). Intended for
+        // sparse use (VPS localization), not per-frame streaming.
+        bool TryReadCameraPixels(uint32_t viewIndex, std::vector<uint8_t>& outPixels, size_t& outWidth, size_t& outHeight, uint32_t downsample, bool grayscale) const {
+            if (viewIndex >= ActiveFrameViews.size()) {
+                return false;
+            }
+            const auto& view = ActiveFrameViews[viewIndex];
+            if (view.CameraTexturePointer == nullptr) {
+                return false;
+            }
+
+            id<MTLTexture> texture = (__bridge id<MTLTexture>)view.CameraTexturePointer;
+            const size_t width = texture.width;
+            const size_t height = texture.height;
+            if (width == 0 || height == 0) {
+                return false;
+            }
+            const size_t bytesPerRow = width * 4;
+            const size_t byteCount = bytesPerRow * height;
+
+            id<MTLBuffer> readbackBuffer = [metalDevice newBufferWithLength:byteCount options:MTLResourceStorageModeShared];
+            if (readbackBuffer == nil) {
+                return false;
+            }
+
+            id<MTLCommandBuffer> readbackCommandBuffer = [commandQueue commandBuffer];
+            readbackCommandBuffer.label = @"CameraReadbackCommandBuffer";
+            id<MTLBlitCommandEncoder> blitEncoder = [readbackCommandBuffer blitCommandEncoder];
+            [blitEncoder copyFromTexture:texture
+                             sourceSlice:0
+                             sourceLevel:0
+                            sourceOrigin:MTLOriginMake(0, 0, 0)
+                              sourceSize:MTLSizeMake(width, height, 1)
+                                toBuffer:readbackBuffer
+                       destinationOffset:0
+                  destinationBytesPerRow:bytesPerRow
+                destinationBytesPerImage:byteCount];
+            [blitEncoder endEncoding];
+            [readbackCommandBuffer commit];
+            [readbackCommandBuffer waitUntilCompleted];
+
+            const uint8_t* src = static_cast<const uint8_t*>(readbackBuffer.contents);
+            const uint32_t ds = downsample == 0 ? 1 : downsample;
+            const size_t dstWidth = width / ds;
+            const size_t dstHeight = height / ds;
+            if (dstWidth == 0 || dstHeight == 0) {
+                return false;
+            }
+
+            if (ds == 1 && !grayscale) {
+                outPixels.resize(byteCount);
+                memcpy(outPixels.data(), src, byteCount);
+            } else {
+                const size_t dstChannels = grayscale ? 1 : 4;
+                outPixels.resize(dstWidth * dstHeight * dstChannels);
+                const float boxScale = 1.0f / (ds * ds);
+                for (size_t y = 0; y < dstHeight; y++) {
+                    uint8_t* dstRow = outPixels.data() + y * dstWidth * dstChannels;
+                    for (size_t x = 0; x < dstWidth; x++) {
+                        uint32_t b{0}, g{0}, r{0}, a{0};
+                        for (uint32_t sy = 0; sy < ds; sy++) {
+                            const uint8_t* srcRow = src + (y * ds + sy) * bytesPerRow + (x * ds) * 4;
+                            for (uint32_t sx = 0; sx < ds; sx++) {
+                                b += srcRow[sx * 4 + 0];
+                                g += srcRow[sx * 4 + 1];
+                                r += srcRow[sx * 4 + 2];
+                                a += srcRow[sx * 4 + 3];
+                            }
+                        }
+                        if (grayscale) {
+                            dstRow[x] = static_cast<uint8_t>((0.299f * r + 0.587f * g + 0.114f * b) * boxScale);
+                        } else {
+                            dstRow[x * 4 + 0] = static_cast<uint8_t>(b * boxScale);
+                            dstRow[x * 4 + 1] = static_cast<uint8_t>(g * boxScale);
+                            dstRow[x * 4 + 2] = static_cast<uint8_t>(r * boxScale);
+                            dstRow[x * 4 + 3] = static_cast<uint8_t>(a * boxScale);
+                        }
+                    }
+                }
+            }
+
+            outWidth = dstWidth;
+            outHeight = dstHeight;
+            return true;
+        }
         
         std::vector<ImageTrackingScore>* GetImageTrackingScores() {
             if (imageTrackingScoresValid) {
@@ -1795,6 +1885,10 @@ namespace xr {
 
     void System::Session::Frame::GetHitTestResults(std::vector<HitResult>& filteredResults, xr::Ray offsetRay, xr::HitTestTrackableType trackableTypes) const {
         m_impl->sessionImpl.GetHitTestResults(filteredResults, offsetRay, trackableTypes);
+    }
+
+    bool System::Session::Frame::TryReadCameraPixels(uint32_t viewIndex, std::vector<uint8_t>& outPixels, size_t& outWidth, size_t& outHeight, uint32_t downsample, bool grayscale) const {
+        return m_impl->sessionImpl.TryReadCameraPixels(viewIndex, outPixels, outWidth, outHeight, downsample, grayscale);
     }
 
     Anchor System::Session::Frame::CreateAnchor(Pose pose, NativeTrackablePtr) const {

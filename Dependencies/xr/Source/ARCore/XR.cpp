@@ -1430,6 +1430,12 @@ namespace xr
         m_impl->sessionImpl.GetHitTestResults(filteredResults, offsetRay, trackableTypes);
     }
 
+    bool System::Session::Frame::TryReadCameraPixels(uint32_t, std::vector<uint8_t>&, size_t&, size_t&, uint32_t, bool) const
+    {
+        // Camera pixel readback is not implemented on ARCore yet.
+        return false;
+    }
+
     Anchor System::Session::Frame::CreateAnchor(Pose pose, NativeTrackablePtr trackable) const
     {
         return m_impl->sessionImpl.CreateAnchor(pose, trackable);
