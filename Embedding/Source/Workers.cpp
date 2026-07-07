@@ -357,27 +357,6 @@ namespace
         try { WA.instantiateStreaming = undefined; } catch (e) { /* ignore */ }
     }
 
-    // The native TextDecoder polyfill is UTF-8 only; emscripten glue constructs
-    // a utf-16le decoder at eval time.
-    (function () {
-        var NativeTextDecoder = g.TextDecoder;
-        function Utf16LEDecoder() { }
-        Utf16LEDecoder.prototype.decode = function (input) {
-            var u8 = input instanceof Uint8Array ? input : new Uint8Array(input);
-            if (u8.byteOffset & 1) { u8 = new Uint8Array(u8); }
-            var u16 = new Uint16Array(u8.buffer, u8.byteOffset, u8.byteLength >> 1);
-            var parts = [];
-            for (var i = 0; i < u16.length; i += 0x8000) {
-                parts.push(String.fromCharCode.apply(null, u16.subarray(i, i + 0x8000)));
-            }
-            return parts.join("");
-        };
-        g.TextDecoder = function (encoding) {
-            if (encoding && /utf-?16/i.test(String(encoding))) { return new Utf16LEDecoder(); }
-            return new NativeTextDecoder();
-        };
-    })();
-
     console.log("worker bootstrap ready (" + (g.location && g.location.href) + ")");
 })();
 )===";

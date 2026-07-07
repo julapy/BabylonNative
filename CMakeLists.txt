@@ -53,8 +53,10 @@ FetchContent_Declare(ios-cmake
     GIT_TAG 4.5.0
     EXCLUDE_FROM_ALL)
 FetchContent_Declare(JsRuntimeHost
-    GIT_REPOSITORY https://github.com/BabylonJS/JsRuntimeHost.git
-    GIT_TAG f07d99119887131a89a3580ada9c2a8dbc7782f7)
+    # EyeJack fork: utf-16le TextDecoder + fetch Response/Headers/Request
+    # classes (upstream f07d9911 + eyejack branch commits).
+    GIT_REPOSITORY https://github.com/julapy/JsRuntimeHost.git
+    GIT_TAG c719dec1af3f91daf426e15c949d2a5d19060e07)
 FetchContent_Declare(metal-cpp
     GIT_REPOSITORY https://github.com/bkaradzic/metal-cpp.git
     GIT_TAG metal-cpp_26
