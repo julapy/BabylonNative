@@ -15,6 +15,9 @@ set(DEPENDENCIES
 
 set(SCRIPTS
     "Scripts/test-video.mp4"
+    "Scripts/model.glb"
+    "Scripts/ejx-ua-shim.js"
+    "Scripts/ejx-app.js"
     "Scripts/experience.js"
     "Scripts/playground_runner.js"
     "Scripts/validation_native.js"
