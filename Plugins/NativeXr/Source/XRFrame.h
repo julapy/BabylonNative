@@ -62,6 +62,7 @@ namespace Babylon
             }
 
             Napi::Value GetHitTestResults(const Napi::CallbackInfo& info);
+            Napi::Value GetCameraImageData(const Napi::CallbackInfo& info);
             Napi::Value CreateAnchor(const Napi::CallbackInfo& info);
             Napi::Value GetTrackedAnchors(const Napi::CallbackInfo& info);
             void UpdateAnchors();

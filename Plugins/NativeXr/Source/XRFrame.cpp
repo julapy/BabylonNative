@@ -39,6 +39,7 @@ namespace Babylon
                     InstanceMethod("getViewerPose", &XRFrame::GetViewerPose),
                     InstanceMethod("getPoseData", &XRFrame::GetPoseData),
                     InstanceMethod("getHitTestResults", &XRFrame::GetHitTestResults),
+                    InstanceMethod("getCameraImageData", &XRFrame::GetCameraImageData),
                     InstanceMethod("createAnchor", &XRFrame::CreateAnchor),
                     InstanceMethod("getJointPose", &XRFrame::GetJointPose),
                     InstanceMethod("fillPoses", &XRFrame::FillPoses),
@@ -276,6 +277,40 @@ namespace Babylon
             }
 
             return results;
+        }
+
+        // Non-standard extension for VPS localization: synchronous CPU readback of
+        // the raw camera image (WebXR raw camera access exposes the image only as a
+        // GPU texture, and NativeEngine has no readPixels path). Returns
+        // { data: ArrayBuffer, width, height, format: "bgra8" | "gray8" } or
+        // undefined when no camera image is available.
+        // Args (all optional): view index (default 0), downsample factor
+        // (default 1), grayscale (default false). Downsample/grayscale run
+        // natively — embedded JSC has no JIT, so per-pixel JS loops stall the
+        // JS thread for hundreds of ms.
+        Napi::Value XRFrame::GetCameraImageData(const Napi::CallbackInfo& info)
+        {
+            const uint32_t viewIndex = (info.Length() > 0 && info[0].IsNumber()) ? info[0].As<Napi::Number>().Uint32Value() : 0;
+            const uint32_t downsample = (info.Length() > 1 && info[1].IsNumber()) ? info[1].As<Napi::Number>().Uint32Value() : 1;
+            const bool grayscale = (info.Length() > 2 && info[2].IsBoolean()) ? info[2].As<Napi::Boolean>().Value() : false;
+
+            std::vector<uint8_t> pixels{};
+            size_t width{};
+            size_t height{};
+            if (m_frame == nullptr || !m_frame->TryReadCameraPixels(viewIndex, pixels, width, height, downsample, grayscale))
+            {
+                return info.Env().Undefined();
+            }
+
+            auto arrayBuffer = Napi::ArrayBuffer::New(info.Env(), pixels.size());
+            std::memcpy(arrayBuffer.Data(), pixels.data(), pixels.size());
+
+            auto result = Napi::Object::New(info.Env());
+            result.Set("data", arrayBuffer);
+            result.Set("width", Napi::Value::From(info.Env(), static_cast<uint32_t>(width)));
+            result.Set("height", Napi::Value::From(info.Env(), static_cast<uint32_t>(height)));
+            result.Set("format", Napi::String::New(info.Env(), grayscale ? "gray8" : "bgra8"));
+            return result;
         }
 
         Napi::Value XRFrame::CreateAnchor(const Napi::CallbackInfo& info)
