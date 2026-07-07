@@ -7,7 +7,9 @@ set(SOURCES
     "${EMBEDDING_SHARED_INCLUDE_ROOT}/Babylon/Embedding/View.h"
     "Source/Runtime.cpp"
     "Source/RuntimeImpl.h"
-    "Source/View.cpp")
+    "Source/View.cpp"
+    "Source/Workers.h"
+    "Source/Workers.cpp")
 
 add_library(Embedding ${SOURCES})
 
@@ -35,6 +37,7 @@ target_link_libraries(Embedding
     PRIVATE arcana
     PRIVATE AppRuntime
     PRIVATE ScriptLoader
+    PRIVATE UrlLib
     PRIVATE Blob
     PRIVATE Console
     PRIVATE Fetch

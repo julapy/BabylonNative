@@ -1,4 +1,5 @@
 #include "RuntimeImpl.h"
+#include "Workers.h"
 
 #include <Babylon/DebugTrace.h>
 
@@ -255,6 +256,22 @@ namespace Babylon::Embedding
 #if BABYLON_NATIVE_POLYFILL_WEBSOCKET
             Babylon::Polyfills::WebSocket::Initialize(env);
 #endif
+
+            // Web Worker polyfill: each Worker runs a dedicated AppRuntime on
+            // its own thread (non-graphics polyfills + worker bootstrap).
+            // Worker console output is routed to the host log with a prefix.
+            {
+                const auto userLog = implPtr->m_options.log;
+                Babylon::Embedding::Workers::Initialize(env, [userLog](const char* message, int level) {
+                    if (!userLog || !message)
+                    {
+                        return;
+                    }
+                    std::string tagged{"[worker] "};
+                    tagged.append(message);
+                    userLog(level == 2 ? LogLevel::Error : (level == 1 ? LogLevel::Warn : LogLevel::Log), tagged);
+                });
+            }
 
 #if BABYLON_NATIVE_POLYFILL_CANVAS
             implPtr->m_canvas.emplace(Babylon::Polyfills::Canvas::Initialize(env));
