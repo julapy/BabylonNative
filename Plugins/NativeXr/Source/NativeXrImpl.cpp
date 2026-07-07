@@ -307,7 +307,15 @@ namespace Babylon
 
                               // WebXR, at least in its current implementation, specifies an implicit default clear to black.
                               // https://immersive-web.github.io/webxr/#xrwebgllayer-interface
-                              frameBuffer.Clear(*m_sessionState->GraphicsContext.GetActiveEncoder(), BGFX_CLEAR_COLOR | BGFX_CLEAR_DEPTH | BGFX_CLEAR_STENCIL, 0, 1.0f, 0);
+                              // NOTE (EyeJack): after the threading rework (#1652) this framebuffer-creation
+                              // continuation runs on the runtime thread, where GetActiveEncoder() (m_frameEncoder)
+                              // can be null (no frame in flight) — dereferencing it crashes on XR session start.
+                              // Guard it: on ARKit/ARCore the camera feed pre-composites (requiresAppClear==false),
+                              // so skipping this one-time clear when no encoder is active is visually safe.
+                              if (auto* activeEncoder = m_sessionState->GraphicsContext.GetActiveEncoder())
+                              {
+                                  frameBuffer.Clear(*activeEncoder, BGFX_CLEAR_COLOR | BGFX_CLEAR_DEPTH | BGFX_CLEAR_STENCIL, 0, 1.0f, 0);
+                              }
 
                               viewConfig.FrameBuffers[eyeIdx] = frameBufferPtr;
 
