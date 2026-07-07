@@ -9,7 +9,7 @@ const logfps = true;
 const ibl = false;
 const rtt = false;
 const vr = false;
-const ar = false;
+const ar = true;
 const xrHitTest = false;
 const xrFeaturePoints = false;
 const meshDetection = false;
@@ -192,6 +192,31 @@ CreateBoxAsync(scene).then(function () {
             scene.meshes[0].rotate(BABYLON.Vector3.Up(), 0.005 * scene.getAnimationRatio());
         };
     }
+
+    // EyeJack combined demo (1/2): video-file playback -> VideoTexture planes.
+    // Created immediately; keep playing across the transition into the AR session.
+    function createVideoPlane(name, url, x, z) {
+        const videoEl = new HTMLVideoElement();
+        videoEl.src = url;
+        const vt = new BABYLON.VideoTexture(name, videoEl, scene, false, true, undefined, { autoPlay: true, loop: true, muted: true });
+        const plane = BABYLON.MeshBuilder.CreatePlane(name + "Plane", { size: 0.5, sideOrientation: BABYLON.Mesh.DOUBLESIDE }, scene);
+        plane.position.set(x, 0, z);
+        // invertY unsupported in Babylon Native; un-mirror via 180-degree in-plane rotation.
+        plane.rotation.y = Math.PI;
+        plane.rotation.z = Math.PI;
+        const mat = new BABYLON.StandardMaterial(name + "Mat", scene);
+        mat.disableLighting = true;
+        mat.emissiveTexture = vt;
+        plane.material = mat;
+        videoEl.addEventListener("canplay", () => {
+            BABYLON.Tools.Log("[EJVID] " + name + " canplay " + videoEl.videoWidth + "x" + videoEl.videoHeight + " dur=" + videoEl.duration.toFixed(2));
+        });
+        return videoEl;
+    }
+    const vid1 = createVideoPlane("vid1", "app:///Scripts/test-video.mp4", -0.6, 1.5);
+    const vid2 = createVideoPlane("vid2", "app:///Scripts/test-video.mp4", 0.6, 1.5);
+    // Exercise JS control inside the AR session: knock vid2 out of phase at t=8s.
+    setTimeout(() => { vid2.currentTime = 2.0; BABYLON.Tools.Log("[EJVID] vid2 seeked; t1=" + vid1.currentTime.toFixed(2) + " t2=" + vid2.currentTime.toFixed(2)); }, 8000);
 
     if (logfps) {
         engine.captureGPUFrameTime(true);
@@ -392,6 +417,27 @@ CreateBoxAsync(scene).then(function () {
                         imageObject.transformationMatrix.decomposeToTransformNode(webXRTrackingMeshes[imageObject.id]);
                     });
                 }
+
+                // EyeJack combined demo (2/2): WebXR raw camera access -> ARKit camera on a plane,
+                // side by side with the playing video planes.
+                const cameraAccess = xr.baseExperience.featuresManager.enableFeature(BABYLON.WebXRFeatureName.RAW_CAMERA_ACCESS, "latest");
+                const camPlane = BABYLON.MeshBuilder.CreatePlane("camPlane", { size: 0.5, sideOrientation: BABYLON.Mesh.DOUBLESIDE }, scene);
+                camPlane.position.set(0, 0, 1.5);
+                camPlane.rotation.y = Math.PI;
+                camPlane.rotation.z = Math.PI;
+                const camMat = new BABYLON.StandardMaterial("camMat", scene);
+                camMat.disableLighting = true;
+                camPlane.material = camMat;
+                let camApplied = false;
+                cameraAccess.onTexturesUpdatedObservable.add((textures) => {
+                    if (!camApplied && textures[0]) {
+                        camApplied = true;
+                        camMat.emissiveTexture = textures[0];
+                        const intr = cameraAccess.cameraIntrinsics[0];
+                        if (intr && intr.width > 0) { camPlane.scaling.y = intr.height / intr.width; }
+                        BABYLON.Tools.Log("[EJXRCAM] camera texture applied " + (intr ? (intr.width + "x" + intr.height) : ""));
+                    }
+                });
 
                 xr.baseExperience.enterXRAsync(sessionMode, "unbounded", xr.renderTarget).then((xrSessionManager) => {
                     if (hololens) {
