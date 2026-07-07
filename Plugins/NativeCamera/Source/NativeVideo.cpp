@@ -160,11 +160,18 @@ namespace Babylon::Plugins
         m_IsPlaying = false;
     }
 
-    void NativeVideo::SetSrcObject(const Napi::CallbackInfo& info, const Napi::Value& value)
+    void NativeVideo::SetSrcObject(const Napi::CallbackInfo& /*info*/, const Napi::Value& value)
     {
-        auto env{info.Env()};
+        // EyeJack fix: accept the MediaStream by duck-typing rather than a strict
+        // InstanceOf(MediaStream) check. getUserMedia returns a genuine MediaStream
+        // ObjectWrap, but InstanceOf against MediaStream::GetConstructor(env) fails
+        // across the napi/JSC boundary, causing the srcObject assignment to be rejected
+        // (readyState stuck at 0, "playing" never fires, VideoTexture never renders).
+        // A MediaStream is identified by its getVideoTracks() method.
+        const bool looksLikeMediaStream =
+            value.IsObject() && value.As<Napi::Object>().Get("getVideoTracks").IsFunction();
 
-        if (value.IsNull() || value.IsUndefined() || !value.As<Napi::Object>().InstanceOf(MediaStream::GetConstructor(env)))
+        if (value.IsNull() || value.IsUndefined() || !looksLikeMediaStream)
         {
             m_streamObject = Napi::ObjectReference();
             this->m_isReady = false;
