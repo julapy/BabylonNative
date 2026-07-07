@@ -32,11 +32,9 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
         // stock experience (which would create a second engine).
         // runtime.loadScript("app:///Scripts/experience.js")
         runtime.loadScript("app:///Scripts/ejx-ua-shim.js")
-        // Worker polyfill smoke test: echo worker + unmodified Immersal
-        // locworker.js (wasm on the worker thread).
-        runtime.loadScript("app:///Scripts/ejx-worker-test.js")
+        runtime.loadScript("app:///Scripts/ejx-app.js")
+        // runtime.loadScript("app:///Scripts/ejx-worker-test.js")
         // runtime.loadScript("app:///Scripts/ejx-wasm-test.js")
-        // runtime.loadScript("app:///Scripts/ejx-app.js")
 
         self.runtime = runtime
         return true

@@ -506,7 +506,7 @@ var __publicField = (obj, key, value) => __defNormalProp(obj, typeof key !== "sy
     }
     async init() {
       this.locWorker = await new Promise((res) => {
-        const workerUrl = new URL("/js/locworker.js", window.location.origin).href;
+        const workerUrl = IS_BABYLON_NATIVE_JSCORE ? "app:///Scripts/locworker.js" : new URL("/js/locworker.js", window.location.origin).href;
         const locWorker = new Worker(workerUrl);
         locWorker.addEventListener("message", (ev) => {
           if (ev.data.type === "Init") {
@@ -5658,7 +5658,8 @@ var __publicField = (obj, key, value) => __defNormalProp(obj, typeof key !== "sy
     const { signal } = asset.abortCtrl;
     try {
       const response = await fetch(asset.path, { signal });
-      const data = await parse(response, PLYLoader);
+      const buffer = await response.arrayBuffer();
+      const data = await parse(buffer, PLYLoader, { worker: false });
       const pos = data.attributes.POSITION.value;
       const col = data.attributes.COLOR_0.value;
       const num = pos.length / 3;
@@ -8891,6 +8892,24 @@ If you want to offset all timestamps of a track such that the first one is zero,
       emitter.emit("analytics", event);
     }
   }
+  function installNativeShims() {
+    if (!IS_BABYLON_NATIVE_JSCORE) {
+      return;
+    }
+    const g = globalThis;
+    if (typeof g.Response === "undefined") {
+      g.Response = class Response {
+      };
+    }
+    if (typeof g.Request === "undefined") {
+      g.Request = class Request {
+      };
+    }
+    if (typeof g.Headers === "undefined") {
+      g.Headers = class Headers {
+      };
+    }
+  }
   class AppBabylon extends AppBase {
     constructor(renderCanvas) {
       super();
@@ -8905,6 +8924,7 @@ If you want to offset all timestamps of a track such that the first one is zero,
       __publicField(this, "share");
       __publicField(this, "timeLast", 0);
       __publicField(this, "timeDelta", 0);
+      installNativeShims();
       this.renderCanvas = renderCanvas;
     }
     initialize() {
@@ -9463,6 +9483,7 @@ If you want to offset all timestamps of a track such that the first one is zero,
           reject(new Error("AppImmersal.localize: already localizing."));
           return;
         }
+        this.localizing = true;
         this.immersalImpl.localize(imageData, imageWidth, imageHeight, intrinsics).then((res) => {
           this.localizing = false;
           if (res.success) {
@@ -10232,15 +10253,18 @@ If you want to offset all timestamps of a track such that the first one is zero,
   const TAG = "[EJXIMM]";
   const configImmersal = new AppImmersalConfig({
     token: "0d9e70de2e6dad37060de2019f11f272c00fc6087fbecf803a4cffec2b24b01c",
+    // true: on-device wasm localization (locworker.js on a Worker — Babylon
+    // Native's Worker polyfill runs it on a background thread, ~20s/attempt).
+    // false: cloud VPS (~3s/attempt) — better for visual alignment checks.
     localizeOnDevice: false,
-    // cloud VPS first; on-device wasm is the next step
     maps: [
       {
         mapId: 96897,
-        // Keep the map visuals off for v1 — the axes marker at map origin is the
-        // ground truth for a correct pose.
-        loadSparseMap: false,
-        loadTexturedMesh: false
+        // Map visuals: on a correct pose these line up with the physical room —
+        // the ground truth for localization accuracy.
+        loadSparseMap: true,
+        loadTexturedMesh: true,
+        pointCloudSize: 5
       }
     ]
   });
