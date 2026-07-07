@@ -32,9 +32,10 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
         // stock experience (which would create a second engine).
         // runtime.loadScript("app:///Scripts/experience.js")
         runtime.loadScript("app:///Scripts/ejx-ua-shim.js")
-        // WASM feasibility test: run instead of the app bundle (JS-thread
-        // blocking is expected; this only gates whether PosePlugin.wasm runs).
-        runtime.loadScript("app:///Scripts/ejx-wasm-test.js")
+        // Worker polyfill smoke test: echo worker + unmodified Immersal
+        // locworker.js (wasm on the worker thread).
+        runtime.loadScript("app:///Scripts/ejx-worker-test.js")
+        // runtime.loadScript("app:///Scripts/ejx-wasm-test.js")
         // runtime.loadScript("app:///Scripts/ejx-app.js")
 
         self.runtime = runtime
