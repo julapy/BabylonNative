@@ -3,271 +3,15 @@ var __defNormalProp = (obj, key, value) => key in obj ? __defProp(obj, key, { en
 var __publicField = (obj, key, value) => __defNormalProp(obj, typeof key !== "symbol" ? key + "" : key, value);
 (function(babylonjs) {
   "use strict";
-  class PoseBase {
-    constructor() {
-      __publicField(this, "position", new babylonjs.Vector3(0, 0, 0));
-      __publicField(this, "rotation", babylonjs.Quaternion.Identity());
-      __publicField(this, "scale", new babylonjs.Vector3(1, 1, 1));
-    }
-    setMatrix(matrix) {
-      matrix.decompose(this.scale, this.rotation, this.position);
-    }
-    getMatrix() {
-      return babylonjs.Matrix.Compose(this.scale, this.rotation, this.position);
-    }
-    getMatrixToRef(matrix) {
-      return babylonjs.Matrix.ComposeToRef(this.scale, this.rotation, this.position, matrix);
-    }
-    getPosition() {
-      return this.position.clone();
-    }
-    getPositionToRef(position) {
-      return position.copyFrom(this.position);
-    }
-    getRotation() {
-      return this.rotation.clone();
-    }
-    getRotationToRef(rotation) {
-      return rotation.copyFrom(this.rotation);
-    }
-    getScale() {
-      return this.scale.clone();
-    }
-    getScaleToRef(scale) {
-      return scale.copyFrom(this.scale);
-    }
-    update(_timeDelta) {
-    }
-    reset() {
-      this.position.set(0, 0, 0);
-      this.rotation.set(0, 0, 0, 1);
-      this.scale.set(1, 1, 1);
-    }
-  }
-  class PoseFilter extends PoseBase {
-    constructor() {
-      super();
-      __publicField(this, "mHistorySize", 8);
-      __publicField(this, "mP", new Array(this.mHistorySize));
-      __publicField(this, "mX", new Array(this.mHistorySize));
-      __publicField(this, "mZ", new Array(this.mHistorySize));
-      __publicField(this, "mSamples", 0);
-      __publicField(this, "x", new babylonjs.Vector3(0, 0, 0));
-      __publicField(this, "z", new babylonjs.Vector3(0, 0, 0));
-      __publicField(this, "up", new babylonjs.Vector3(0, 0, 0));
-      __publicField(this, "mean", new babylonjs.Vector3(0, 0, 0));
-      __publicField(this, "avg", new babylonjs.Vector3(0, 0, 0));
-      for (let i = 0; i < this.mHistorySize; i++) {
-        this.mP[i] = new babylonjs.Vector3(0, 0, 0);
-        this.mX[i] = new babylonjs.Vector3(0, 0, 0);
-        this.mZ[i] = new babylonjs.Vector3(0, 0, 0);
-      }
-    }
-    setMatrix(matrix) {
-      const idx = this.mSamples % this.mHistorySize;
-      this.matrixColumnToVector(matrix, 3, this.mP[idx]);
-      this.matrixColumnToVector(matrix, 0, this.mX[idx]);
-      this.matrixColumnToVector(matrix, 2, this.mZ[idx]);
-      this.mSamples++;
-      const n = this.mSamples > this.mHistorySize ? this.mHistorySize : this.mSamples;
-      this.position.copyFrom(this.filterAVT(this.mP, n));
-      this.x.copyFrom(this.filterAVT(this.mX, n)).normalize();
-      this.z.copyFrom(this.filterAVT(this.mZ, n)).normalize();
-      babylonjs.Vector3.CrossToRef(this.z, this.x, this.up);
-      this.up.normalize();
-      babylonjs.Quaternion.FromLookDirectionRHToRef(this.z, this.up, this.rotation);
-    }
-    matrixColumnToVector(matrix, index, out) {
-      out.set(matrix.m[index * 4], matrix.m[index * 4 + 1], matrix.m[index * 4 + 2]);
-    }
-    filterAVT(buf, n) {
-      this.mean.set(0, 0, 0);
-      for (let i = 0; i < n; i++) {
-        this.mean.addInPlace(buf[i]);
-      }
-      this.mean.scaleInPlace(1 / n);
-      if (n <= 2) {
-        return this.mean;
-      }
-      let s = 0;
-      for (let i = 0; i < n; i++) {
-        s += babylonjs.Vector3.DistanceSquared(buf[i], this.mean);
-      }
-      s /= n;
-      this.avg.set(0, 0, 0);
-      let ib = 0;
-      for (let i = 0; i < n; i++) {
-        const d = babylonjs.Vector3.DistanceSquared(buf[i], this.mean);
-        if (d <= s) {
-          this.avg.addInPlace(buf[i]);
-          ib++;
-        }
-      }
-      if (ib > 0) {
-        this.avg.scaleInPlace(1 / ib);
-        return this.avg;
-      }
-      return this.mean;
-    }
-    reset() {
-      super.reset();
-      this.mSamples = 0;
-    }
-  }
-  class PoseSmooth extends PoseBase {
-    constructor() {
-      super();
-      __publicField(this, "warpOutsideThreshold", true);
-      __publicField(this, "warpThresholdDistSq", 5 * 5);
-      __publicField(this, "warpThresholdCosAngle", Math.cos(20 * Math.PI / 180));
-      __publicField(this, "positionTarget", new babylonjs.Vector3(0, 0, 0));
-      __publicField(this, "rotationTarget", babylonjs.Quaternion.Identity());
-      __publicField(this, "firstData", true);
-    }
-    setMatrix(matrix) {
-      this.positionTarget.set(matrix.m[12], matrix.m[13], matrix.m[14]);
-      babylonjs.Quaternion.FromRotationMatrixToRef(matrix, this.rotationTarget);
-      if (this.firstData) {
-        this.firstData = false;
-        this.position.copyFrom(this.positionTarget);
-        this.rotation.copyFrom(this.rotationTarget);
-      }
-    }
-    update(timeDelta) {
-      const distSq = babylonjs.Vector3.DistanceSquared(this.position, this.positionTarget);
-      const cosAngle = babylonjs.Quaternion.Dot(this.rotation, this.rotationTarget);
-      if (this.warpOutsideThreshold && (distSq > this.warpThresholdDistSq || cosAngle < this.warpThresholdCosAngle)) {
-        this.position.copyFrom(this.positionTarget);
-        this.rotation.copyFrom(this.rotationTarget);
-      } else {
-        const smoothing = 0.025;
-        let steps = timeDelta / (1 / 60);
-        if (steps < 1) {
-          steps = 1;
-        } else if (steps > 6) {
-          steps = 6;
-        }
-        const alpha = 1 - Math.pow(1 - smoothing, steps);
-        babylonjs.Vector3.LerpToRef(this.position, this.positionTarget, alpha, this.position);
-        babylonjs.Quaternion.SlerpToRef(this.rotation, this.rotationTarget, alpha, this.rotation);
-      }
-    }
-    reset() {
-      super.reset();
-      this.positionTarget.set(0, 0, 0);
-      this.rotationTarget.set(0, 0, 0, 1);
-      this.firstData = true;
-    }
-  }
-  class PoseConstraints extends PoseBase {
-    constructor() {
-      super();
-      __publicField(this, "constraintPositionX");
-      __publicField(this, "constraintPositionY");
-      __publicField(this, "constraintPositionZ");
-      __publicField(this, "_rotation", new babylonjs.Vector3(0, 0, 0));
-      __publicField(this, "constraintRotationX");
-      __publicField(this, "constraintRotationY");
-      __publicField(this, "constraintRotationZ");
-    }
-    update() {
-      if (this.constraintPositionX) {
-        this.position.x = this.constraintPositionX;
-      }
-      if (this.constraintPositionY) {
-        this.position.y = this.constraintPositionY;
-      }
-      if (this.constraintPositionZ) {
-        this.position.z = this.constraintPositionZ;
-      }
-      if (this.constraintRotationX !== void 0 || this.constraintRotationY !== void 0 || this.constraintRotationZ !== void 0) {
-        this.rotation.toEulerAnglesToRef(this._rotation);
-        this._rotation.x = this.constraintRotationX ?? this._rotation.x;
-        this._rotation.y = this.constraintRotationY ?? this._rotation.y;
-        this._rotation.z = this.constraintRotationZ ?? this._rotation.z;
-        this.rotation.copyFrom(babylonjs.Quaternion.FromEulerAngles(this._rotation.x, this._rotation.y, this._rotation.z));
-      }
-    }
-    reset() {
-      super.reset();
-      this.constraintPositionX = void 0;
-      this.constraintPositionY = void 0;
-      this.constraintPositionZ = void 0;
-      this.constraintRotationX = void 0;
-      this.constraintRotationY = void 0;
-      this.constraintRotationZ = void 0;
-    }
-  }
-  class Pose extends PoseBase {
-    constructor() {
-      super();
-      __publicField(this, "matricesToProcess", []);
-      __publicField(this, "poseFilter");
-      __publicField(this, "poseSmooth");
-      __publicField(this, "poseConstraints");
-    }
-    enablePoseFilter() {
-      if (!this.poseFilter) this.poseFilter = new PoseFilter();
-    }
-    enablePoseSmooth() {
-      if (!this.poseSmooth) this.poseSmooth = new PoseSmooth();
-    }
-    setPositionConstraints({ positionX, positionY, positionZ }) {
-      if (!this.poseConstraints) {
-        this.poseConstraints = new PoseConstraints();
-      }
-      this.poseConstraints.constraintPositionX = positionX;
-      this.poseConstraints.constraintPositionY = positionY;
-      this.poseConstraints.constraintPositionZ = positionZ;
-    }
-    setRotationConstraints({ rotationX, rotationY, rotationZ }) {
-      if (!this.poseConstraints) {
-        this.poseConstraints = new PoseConstraints();
-      }
-      this.poseConstraints.constraintRotationX = rotationX;
-      this.poseConstraints.constraintRotationY = rotationY;
-      this.poseConstraints.constraintRotationZ = rotationZ;
-    }
-    setMatrix(matrix) {
-      this.matricesToProcess.push(matrix.clone());
-    }
-    update(timeDelta) {
-      const matrix = this.getMatrix();
-      if (this.matricesToProcess.length > 0) {
-        if (this.poseFilter) {
-          for (let i = 0; i < this.matricesToProcess.length; i++) {
-            const matrixToProcess = this.matricesToProcess[i];
-            this.poseFilter.setMatrix(matrixToProcess);
-          }
-          this.poseFilter.getMatrixToRef(matrix);
-        } else {
-          const lastMatrix = this.matricesToProcess[this.matricesToProcess.length - 1];
-          matrix.copyFrom(lastMatrix);
-        }
-        if (this.poseSmooth) {
-          this.poseSmooth.setMatrix(matrix);
-        }
-      }
-      this.matricesToProcess.length = 0;
-      if (this.poseSmooth) {
-        this.poseSmooth.update(timeDelta);
-        this.poseSmooth.getMatrixToRef(matrix);
-      }
-      if (this.poseConstraints) {
-        this.poseConstraints.setMatrix(matrix);
-        this.poseConstraints.update();
-        this.poseConstraints.getMatrixToRef(matrix);
-      }
-      super.setMatrix(matrix);
-    }
-    reset() {
-      var _a, _b, _c;
-      super.reset();
-      (_a = this.poseFilter) == null ? void 0 : _a.reset();
-      (_b = this.poseSmooth) == null ? void 0 : _b.reset();
-      (_c = this.poseConstraints) == null ? void 0 : _c.reset();
-    }
-  }
+  var ErrorWebXR = /* @__PURE__ */ ((ErrorWebXR2) => {
+    ErrorWebXR2["UNDEFINED"] = "UNDEFINED";
+    ErrorWebXR2["NOT_SUPPPORTED"] = "NOT_SUPPPORTED";
+    ErrorWebXR2["PERMISSION_DENIED"] = "PERMISSION_DENIED";
+    ErrorWebXR2["MOTION_PERMISSION_DENIED"] = "MOTION_PERMISSION_DENIED";
+    ErrorWebXR2["CAMERA_PERMISSION_DENIED"] = "CAMERA_PERMISSION_DENIED";
+    ErrorWebXR2["MIC_PERMISSION_DENIED"] = "MIC_PERMISSION_DENIED";
+    return ErrorWebXR2;
+  })(ErrorWebXR || {});
   const ua$1 = typeof window !== "undefined" ? window.navigator.userAgent : "";
   const isWebKit = ua$1.includes("AppleWebKit");
   const isSafari = ua$1.includes("Safari");
@@ -302,2289 +46,226 @@ var __publicField = (obj, key, value) => __defNormalProp(obj, typeof key !== "sy
       });
     }
   }
-  class ImmersalBase {
-    constructor(token, mapIds) {
-      __publicField(this, "token", "");
-      __publicField(this, "mapIds", []);
-      this.token = token;
-      this.mapIds = mapIds;
+  const ua = typeof window !== "undefined" ? window.navigator.userAgent : "";
+  function isWebXRCameraAccessBroken() {
+    if (!ua.includes("Android") || !ua.includes("Chrome/")) return false;
+    const match = ua.match(/Chrome\/(\d+)/);
+    if (!match) return false;
+    const major = parseInt(match[1], 10);
+    return major >= 147 && major <= 148;
+  }
+  let _applied = false;
+  function applyWebXRCameraAccessFix() {
+    var _a;
+    if (_applied) return;
+    _applied = true;
+    if (!isWebXRCameraAccessBroken()) return;
+    console.warn(
+      "[WebXR] Applying Chrome 147-148 camera-access crash workaround (crbug.com/507508099). Fixed in Chrome 149+."
+    );
+    const xrWebGLBindingCtor = globalThis.XRWebGLBinding;
+    const xrRenderStateCtor = globalThis.XRRenderState;
+    const xrSessionCtor = globalThis.XRSession;
+    if (xrWebGLBindingCtor == null ? void 0 : xrWebGLBindingCtor.prototype) {
+      try {
+        delete xrWebGLBindingCtor.prototype.createProjectionLayer;
+      } catch (_e) {
+      }
     }
-    async init() {
-      return Promise.reject(new Error("immersal.base.init must be overridden in the subclass"));
+    if (xrRenderStateCtor == null ? void 0 : xrRenderStateCtor.prototype) {
+      try {
+        delete xrRenderStateCtor.prototype.layers;
+      } catch (_e) {
+      }
     }
-    async loadMap(_url) {
-      return Promise.reject(new Error("immersal.base.loadMap must be overridden in the subclass"));
-    }
-    async localize(_imageData, _imageWidth, _imageHeight, _intrinsics) {
-      return Promise.reject(new Error("immersal.base.localize must be overridden in the subclass"));
+    if ((_a = xrSessionCtor == null ? void 0 : xrSessionCtor.prototype) == null ? void 0 : _a.updateRenderState) {
+      const originalUpdateRenderState = xrSessionCtor.prototype.updateRenderState;
+      let lastBaseLayer;
+      xrSessionCtor.prototype.updateRenderState = function(state) {
+        const next = { ...state ?? {} };
+        if (next.baseLayer !== void 0) {
+          lastBaseLayer = next.baseLayer ?? void 0;
+        } else if (lastBaseLayer) {
+          next.baseLayer = lastBaseLayer;
+        }
+        return originalUpdateRenderState.call(this, next);
+      };
     }
   }
-  const _Bridge = class _Bridge {
+  class XRModuleBase {
+    constructor(xr) {
+      __publicField(this, "xr");
+      this.xr = xr;
+    }
+  }
+  class XRModuleSessionOptions {
     constructor() {
-      __publicField(this, "callbacks", []);
-      __publicField(this, "subs", []);
-      if (typeof window !== "undefined") {
-        window.ejx = window.ejx || {};
-        window.ejx.response = window.ejx.response || _Bridge.ResponseCallback;
-      }
-      _Bridge.instances.push(this);
+      __publicField(this, "domOverlayElement");
+      __publicField(this, "domOverlayElementName");
+      __publicField(this, "disableDefaultUI", false);
+      __publicField(this, "enableHitTest", true);
+      __publicField(this, "enableCameraAccess", true);
+      __publicField(this, "arkitFeatures", []);
+      __publicField(this, "onEnteringXR");
+      __publicField(this, "onExitingXR");
+      __publicField(this, "onInXR");
+      __publicField(this, "onNotInXR");
+      __publicField(this, "onError");
     }
-    dispose() {
-      const index = _Bridge.instances.indexOf(this);
-      if (index !== -1) {
-        _Bridge.instances.splice(index, 1);
-      }
+    get enableDomOverlay() {
+      const enableDomOverlay = this.domOverlayElement !== void 0 || this.domOverlayElementName !== void 0;
+      return enableDomOverlay;
     }
-    send(message, resolve, reject) {
-      var _a, _b, _c, _d, _e, _f, _g, _h;
-      const callback = {
-        message,
-        resolve,
-        reject
-      };
-      this.callbacks.push(callback);
-      let sent = true;
-      if ((_b = (_a = window.webkit) == null ? void 0 : _a.messageHandlers) == null ? void 0 : _b.eyejack) {
-        (_e = (_d = (_c = window.webkit) == null ? void 0 : _c.messageHandlers) == null ? void 0 : _d.eyejack) == null ? void 0 : _e.postMessage(message);
-      } else if ((_f = window.ARCore) == null ? void 0 : _f.eyejackMessage) {
-        (_h = (_g = window.ARCore) == null ? void 0 : _g.eyejackMessage) == null ? void 0 : _h.call(_g, message);
-      } else {
-        sent = false;
-      }
-      if (!sent) {
-        console.error("Bridge.send failed.");
-        this.callbacks.pop();
-      }
+    get requiredFeatures() {
+      const requiredFeatures = [];
+      if (this.enableDomOverlay) requiredFeatures.push("dom-overlay");
+      return requiredFeatures;
     }
-    subscribe(uuid, func) {
-      const subIndex = this.subs.findIndex((sub) => sub.uuid === uuid);
-      if (subIndex === -1) {
-        const sub = {
-          uuid,
-          func
-        };
-        this.subs.push(sub);
-      }
+    get optionalFeatures() {
+      const optionalFeatures = [
+        ...this.enableHitTest ? ["hit-test"] : [],
+        ...this.enableCameraAccess ? ["camera-access"] : [],
+        ...this.arkitFeatures
+      ];
+      return optionalFeatures;
     }
-    unsubscribe(uuid) {
-      const subIndex = this.subs.findIndex((sub) => sub.uuid === uuid);
-      if (subIndex !== -1) {
-        this.subs.splice(subIndex, 1);
-      }
-    }
-    response(message) {
-      const callbackIndex = this.callbacks.findIndex((callback) => callback.message.uuid === message.uuid);
-      if (callbackIndex !== -1) {
-        const callback = this.callbacks[callbackIndex];
-        this.callbacks.splice(callbackIndex, 1);
-        if (message) {
-          callback.resolve(message.data);
-        } else {
-          callback.reject(new Error("Bridge.response error - callback response returned undefined."));
-        }
-      }
-      const subIndex = this.subs.findIndex((sub) => sub.uuid === message.uuid);
-      if (subIndex !== -1) {
-        const sub = this.subs[subIndex];
-        if (message) {
-          sub.func(message.data);
-        } else {
-          console.error("Bridge.response error - subscription response returned undefined.");
-        }
-      }
-    }
-  };
-  __publicField(_Bridge, "instances", []);
-  __publicField(_Bridge, "ResponseCallback", (data) => {
-    _Bridge.instances.forEach((instance) => {
-      instance.response(data);
-    });
-  });
-  let Bridge = _Bridge;
-  const BridgeMessageTypeImmersalLoadMap = "immersal/loadmap";
-  const BridgeMessageTypeImmersalLocalizeOnDevice = "immersal/localizeondevice";
-  const BridgeMessageTypeImmersalLocalizeOnCloud = "immersal/localizeoncloud";
-  const BridgeMessageTypeMediaRecorderStart = "mediarecorder/start";
-  const BridgeMessageTypeMediaRecorderStop = "mediarecorder/stop";
-  const BridgeMessageTypeShare = "share";
-  class BridgeImmersal extends Bridge {
+  }
+  class XRModuleSession extends XRModuleBase {
     constructor() {
       super();
-    }
-    async loadMapFromImmersalApi(token, mapId) {
-      const path = "https://api.immersal.com/map?token=" + token + "&id=" + mapId;
-      return this.loadMapFromPath(path);
-    }
-    async loadMapFromPath(path) {
-      return new Promise((resolve, reject) => {
-        const message = {
-          uuid: Utils.UUID(),
-          type: BridgeMessageTypeImmersalLoadMap,
-          data: {
-            path
-          }
-        };
-        this.send(message, resolve, reject);
-      });
-    }
-    async localizeOnDevice() {
-      return new Promise((resolve, reject) => {
-        const message = {
-          uuid: Utils.UUID(),
-          type: BridgeMessageTypeImmersalLocalizeOnDevice,
-          data: void 0
-        };
-        this.send(message, resolve, reject);
-      });
-    }
-    async localizeOnCloud(token, mapIds) {
-      return new Promise((resolve, reject) => {
-        const message = {
-          uuid: Utils.UUID(),
-          type: BridgeMessageTypeImmersalLocalizeOnCloud,
-          data: {
-            token,
-            mapIds
-          }
-        };
-        this.send(message, resolve, reject);
-      });
-    }
-  }
-  class ImmersalAppDevice extends ImmersalBase {
-    constructor(token, mapIds) {
-      super(token, mapIds);
-      __publicField(this, "bridge");
-      this.bridge = new BridgeImmersal();
-    }
-    async init() {
-      console.warn("immersal.app.device.init not required.");
-      return Promise.resolve();
-    }
-    async loadMap(url2) {
-      return this.bridge.loadMapFromPath(url2);
-    }
-    async localize(_imageData, _imageWidth, _imageHeight, _intrinsics) {
-      try {
-        const data = await this.bridge.localizeOnDevice();
-        if (data.error) {
-          throw new Error("immersal.app.device.localize: failed - " + data.error);
-        }
-        const locResult = {
-          success: false,
-          confidence: 0
-        };
-        if (data.success) {
-          let matrix = new babylonjs.Matrix();
-          matrix.setRowFromFloats(0, data.r00, -data.r01, -data.r02, data.px);
-          matrix.setRowFromFloats(1, data.r10, -data.r11, -data.r12, data.py);
-          matrix.setRowFromFloats(2, data.r20, -data.r21, -data.r22, data.pz);
-          matrix.setRowFromFloats(3, 0, 0, 0, 1);
-          matrix = matrix.transpose();
-          locResult.success = true;
-          locResult.confidence = data.confidence;
-          locResult.matrix = new Float32Array(16);
-          matrix.toArray(locResult.matrix, 0);
-          if (this.mapIds.length > 0) {
-            locResult.map = this.mapIds[0];
-          }
-        }
-        return locResult;
-      } catch (error) {
-        if (error instanceof Error) {
-          throw new Error(`${error.message || error}`);
-        } else {
-          throw new Error(String(error));
-        }
-      }
-    }
-  }
-  class ImmersalWebDevice extends ImmersalBase {
-    constructor(token, mapIds) {
-      super(token, mapIds);
-      __publicField(this, "locWorker");
-    }
-    async init() {
-      this.locWorker = await new Promise((res) => {
-        const workerUrl = IS_BABYLON_NATIVE_JSCORE ? "app:///Scripts/locworker.js" : new URL("/js/locworker.js", window.location.origin).href;
-        const locWorker = new Worker(workerUrl);
-        locWorker.addEventListener("message", (ev) => {
-          if (ev.data.type === "Init") {
-            res(locWorker);
-          }
-        });
-      });
-    }
-    async loadMap(url2) {
-      try {
-        const response = await fetch(url2);
-        if (!response.ok) {
-          throw new Error("immersal.web.device.loadMap: network response was not ok");
-        }
-        const arrayBuffer = await response.arrayBuffer();
-        const mapData = new Uint8Array(arrayBuffer);
-        await new Promise((resolve, reject) => {
-          const loadMapHandler = (e) => {
-            const { type, data } = e.data;
-            if (type == "LoadMap") {
-              this.locWorker.removeEventListener("message", loadMapHandler);
-              const success = data >= 0;
-              if (success) {
-                resolve();
-              } else {
-                reject("immersal.web.device.loadMap: locWorker failed to load map");
-              }
-            }
-          };
-          this.locWorker.postMessage({ type: "LoadMap", data: mapData });
-          this.locWorker.addEventListener("message", loadMapHandler);
-        });
-      } catch (error) {
-        if (error instanceof Error) {
-          throw new Error(`${error.message || error}`);
-        } else {
-          throw new Error(String(error));
-        }
-      }
-    }
-    async localize(imageData, imageWidth, imageHeight, intrinsics) {
-      return new Promise((resolve, reject) => {
-        if (!this.locWorker) {
-          reject(new Error("immersal.web.device.localize: LocWorker has not been loaded yet."));
-          return;
-        }
-        const SOLVER_TYPE = 0;
-        const gyro = { x: 0, y: 0, z: 0, w: 1 };
-        const camRot = { x: 0, y: 0, z: 0, w: 1 };
-        const intr = {
-          fx: intrinsics.focalLength.x,
-          fy: intrinsics.focalLength.y,
-          ox: intrinsics.principalOffset.x,
-          oy: intrinsics.principalOffset.y
-        };
-        const time = 0;
-        const localizeHandler = (e) => {
-          const { type, data } = e.data;
-          if (type == "Localize") {
-            this.locWorker.removeEventListener("message", localizeHandler);
-            const locResult = {
-              success: false,
-              confidence: -1
-            };
-            const { r, pos, rot, time: time2, gyro: gyro2, focalLength } = data;
-            const success = r >= 0;
-            if (success) {
-              const rotX180 = babylonjs.Quaternion.FromEulerAngles(babylonjs.Tools.ToRadians(180), babylonjs.Tools.ToRadians(0), babylonjs.Tools.ToRadians(0));
-              const immersalPos = new babylonjs.Vector3(pos[0], pos[1], pos[2]);
-              const immersalRot = new babylonjs.Quaternion(rot[0], rot[1], rot[2], rot[3]).multiplyInPlace(rotX180);
-              const immersalScl = new babylonjs.Vector3(1, 1, 1);
-              const matrix = babylonjs.Matrix.Compose(immersalScl, immersalRot, immersalPos);
-              locResult.success = true;
-              locResult.matrix = new Float32Array(16);
-              matrix.toArray(locResult.matrix, 0);
-              if (this.mapIds.length > 0) {
-                locResult.map = this.mapIds[0];
-              }
-            }
-            resolve(locResult);
-          }
-        };
-        this.locWorker.postMessage({ type: "Localize", data: [imageWidth, imageHeight, intr, imageData, time, gyro, SOLVER_TYPE, camRot] });
-        this.locWorker.addEventListener("message", localizeHandler);
-      });
-    }
-  }
-  var Z_FIXED = 4;
-  var Z_BINARY = 0;
-  var Z_TEXT = 1;
-  var Z_UNKNOWN = 2;
-  function zero$1(buf) {
-    let len = buf.length;
-    while (--len >= 0) buf[len] = 0;
-  }
-  var STORED_BLOCK = 0;
-  var STATIC_TREES = 1;
-  var DYN_TREES = 2;
-  var LENGTH_CODES = 29;
-  var LITERALS = 256;
-  var L_CODES = 286;
-  var D_CODES = 30;
-  var BL_CODES = 19;
-  var HEAP_SIZE$1 = 573;
-  var MAX_BITS = 15;
-  var Buf_size = 16;
-  var MAX_BL_BITS = 7;
-  var END_BLOCK = 256;
-  var REP_3_6 = 16;
-  var REPZ_3_10 = 17;
-  var REPZ_11_138 = 18;
-  var extra_lbits = new Uint8Array([
-    0,
-    0,
-    0,
-    0,
-    0,
-    0,
-    0,
-    0,
-    1,
-    1,
-    1,
-    1,
-    2,
-    2,
-    2,
-    2,
-    3,
-    3,
-    3,
-    3,
-    4,
-    4,
-    4,
-    4,
-    5,
-    5,
-    5,
-    5,
-    0
-  ]);
-  var extra_dbits = new Uint8Array([
-    0,
-    0,
-    0,
-    0,
-    1,
-    1,
-    2,
-    2,
-    3,
-    3,
-    4,
-    4,
-    5,
-    5,
-    6,
-    6,
-    7,
-    7,
-    8,
-    8,
-    9,
-    9,
-    10,
-    10,
-    11,
-    11,
-    12,
-    12,
-    13,
-    13
-  ]);
-  var extra_blbits = new Uint8Array([
-    0,
-    0,
-    0,
-    0,
-    0,
-    0,
-    0,
-    0,
-    0,
-    0,
-    0,
-    0,
-    0,
-    0,
-    0,
-    0,
-    2,
-    3,
-    7
-  ]);
-  var bl_order = new Uint8Array([
-    16,
-    17,
-    18,
-    0,
-    8,
-    7,
-    9,
-    6,
-    10,
-    5,
-    11,
-    4,
-    12,
-    3,
-    13,
-    2,
-    14,
-    1,
-    15
-  ]);
-  var DIST_CODE_LEN = 512;
-  var static_ltree = new Array(288 * 2);
-  zero$1(static_ltree);
-  var static_dtree = new Array(D_CODES * 2);
-  zero$1(static_dtree);
-  var _dist_code = new Array(DIST_CODE_LEN);
-  zero$1(_dist_code);
-  var _length_code = new Array(256);
-  zero$1(_length_code);
-  var base_length = new Array(LENGTH_CODES);
-  zero$1(base_length);
-  var base_dist = new Array(D_CODES);
-  zero$1(base_dist);
-  var StaticTreeDesc = class {
-    constructor(static_tree, extra_bits, extra_base, elems, max_length) {
-      this.static_tree = static_tree;
-      this.extra_bits = extra_bits;
-      this.extra_base = extra_base;
-      this.elems = elems;
-      this.max_length = max_length;
-      this.has_stree = static_tree && static_tree.length;
-    }
-  };
-  var static_l_desc;
-  var static_d_desc;
-  var static_bl_desc;
-  var TreeDesc = class {
-    constructor(dyn_tree, stat_desc) {
-      this.dyn_tree = dyn_tree;
-      this.max_code = 0;
-      this.stat_desc = stat_desc;
-    }
-  };
-  var d_code = (dist) => {
-    return dist < 256 ? _dist_code[dist] : _dist_code[256 + (dist >>> 7)];
-  };
-  var put_short = (s, w) => {
-    s.pending_buf[s.pending++] = w & 255;
-    s.pending_buf[s.pending++] = w >>> 8 & 255;
-  };
-  var send_bits = (s, value, length) => {
-    if (s.bi_valid > Buf_size - length) {
-      s.bi_buf |= value << s.bi_valid & 65535;
-      put_short(s, s.bi_buf);
-      s.bi_buf = value >> Buf_size - s.bi_valid;
-      s.bi_valid += length - Buf_size;
-    } else {
-      s.bi_buf |= value << s.bi_valid & 65535;
-      s.bi_valid += length;
-    }
-  };
-  var send_code = (s, c, tree) => {
-    send_bits(s, tree[c * 2], tree[c * 2 + 1]);
-  };
-  var bi_reverse = (code, len) => {
-    let res = 0;
-    do {
-      res |= code & 1;
-      code >>>= 1;
-      res <<= 1;
-    } while (--len > 0);
-    return res >>> 1;
-  };
-  var bi_flush = (s) => {
-    if (s.bi_valid === 16) {
-      put_short(s, s.bi_buf);
-      s.bi_buf = 0;
-      s.bi_valid = 0;
-    } else if (s.bi_valid >= 8) {
-      s.pending_buf[s.pending++] = s.bi_buf & 255;
-      s.bi_buf >>= 8;
-      s.bi_valid -= 8;
-    }
-  };
-  var gen_bitlen = (s, desc) => {
-    const tree = desc.dyn_tree;
-    const max_code = desc.max_code;
-    const stree = desc.stat_desc.static_tree;
-    const has_stree = desc.stat_desc.has_stree;
-    const extra = desc.stat_desc.extra_bits;
-    const base = desc.stat_desc.extra_base;
-    const max_length = desc.stat_desc.max_length;
-    let h;
-    let n, m;
-    let bits;
-    let xbits;
-    let f;
-    let overflow = 0;
-    for (bits = 0; bits <= MAX_BITS; bits++) s.bl_count[bits] = 0;
-    tree[s.heap[s.heap_max] * 2 + 1] = 0;
-    for (h = s.heap_max + 1; h < HEAP_SIZE$1; h++) {
-      n = s.heap[h];
-      bits = tree[tree[n * 2 + 1] * 2 + 1] + 1;
-      if (bits > max_length) {
-        bits = max_length;
-        overflow++;
-      }
-      tree[n * 2 + 1] = bits;
-      if (n > max_code) continue;
-      s.bl_count[bits]++;
-      xbits = 0;
-      if (n >= base) xbits = extra[n - base];
-      f = tree[n * 2];
-      s.opt_len += f * (bits + xbits);
-      if (has_stree) s.static_len += f * (stree[n * 2 + 1] + xbits);
-    }
-    if (overflow === 0) return;
-    do {
-      bits = max_length - 1;
-      while (s.bl_count[bits] === 0) bits--;
-      s.bl_count[bits]--;
-      s.bl_count[bits + 1] += 2;
-      s.bl_count[max_length]--;
-      overflow -= 2;
-    } while (overflow > 0);
-    for (bits = max_length; bits !== 0; bits--) {
-      n = s.bl_count[bits];
-      while (n !== 0) {
-        m = s.heap[--h];
-        if (m > max_code) continue;
-        if (tree[m * 2 + 1] !== bits) {
-          s.opt_len += (bits - tree[m * 2 + 1]) * tree[m * 2];
-          tree[m * 2 + 1] = bits;
-        }
-        n--;
-      }
-    }
-  };
-  var gen_codes = (tree, max_code, bl_count) => {
-    const next_code = new Array(16);
-    let code = 0;
-    let bits;
-    let n;
-    for (bits = 1; bits <= MAX_BITS; bits++) {
-      code = code + bl_count[bits - 1] << 1;
-      next_code[bits] = code;
-    }
-    for (n = 0; n <= max_code; n++) {
-      let len = tree[n * 2 + 1];
-      if (len === 0) continue;
-      tree[n * 2] = bi_reverse(next_code[len]++, len);
-    }
-  };
-  var tr_static_init = () => {
-    let n;
-    let bits;
-    let length;
-    let code;
-    let dist;
-    const bl_count = new Array(16);
-    length = 0;
-    for (code = 0; code < LENGTH_CODES - 1; code++) {
-      base_length[code] = length;
-      for (n = 0; n < 1 << extra_lbits[code]; n++) _length_code[length++] = code;
-    }
-    _length_code[length - 1] = code;
-    dist = 0;
-    for (code = 0; code < 16; code++) {
-      base_dist[code] = dist;
-      for (n = 0; n < 1 << extra_dbits[code]; n++) _dist_code[dist++] = code;
-    }
-    dist >>= 7;
-    for (; code < D_CODES; code++) {
-      base_dist[code] = dist << 7;
-      for (n = 0; n < 1 << extra_dbits[code] - 7; n++) _dist_code[256 + dist++] = code;
-    }
-    for (bits = 0; bits <= MAX_BITS; bits++) bl_count[bits] = 0;
-    n = 0;
-    while (n <= 143) {
-      static_ltree[n * 2 + 1] = 8;
-      n++;
-      bl_count[8]++;
-    }
-    while (n <= 255) {
-      static_ltree[n * 2 + 1] = 9;
-      n++;
-      bl_count[9]++;
-    }
-    while (n <= 279) {
-      static_ltree[n * 2 + 1] = 7;
-      n++;
-      bl_count[7]++;
-    }
-    while (n <= 287) {
-      static_ltree[n * 2 + 1] = 8;
-      n++;
-      bl_count[8]++;
-    }
-    gen_codes(static_ltree, 287, bl_count);
-    for (n = 0; n < D_CODES; n++) {
-      static_dtree[n * 2 + 1] = 5;
-      static_dtree[n * 2] = bi_reverse(n, 5);
-    }
-    static_l_desc = new StaticTreeDesc(static_ltree, extra_lbits, 257, L_CODES, MAX_BITS);
-    static_d_desc = new StaticTreeDesc(static_dtree, extra_dbits, 0, D_CODES, MAX_BITS);
-    static_bl_desc = new StaticTreeDesc(new Array(0), extra_blbits, 0, BL_CODES, MAX_BL_BITS);
-  };
-  var init_block = (s) => {
-    let n;
-    for (n = 0; n < L_CODES; n++) s.dyn_ltree[n * 2] = 0;
-    for (n = 0; n < D_CODES; n++) s.dyn_dtree[n * 2] = 0;
-    for (n = 0; n < BL_CODES; n++) s.bl_tree[n * 2] = 0;
-    s.dyn_ltree[END_BLOCK * 2] = 1;
-    s.opt_len = s.static_len = 0;
-    s.sym_next = s.matches = 0;
-  };
-  var bi_windup = (s) => {
-    if (s.bi_valid > 8) put_short(s, s.bi_buf);
-    else if (s.bi_valid > 0) s.pending_buf[s.pending++] = s.bi_buf;
-    s.bi_buf = 0;
-    s.bi_valid = 0;
-  };
-  var smaller = (tree, n, m, depth) => {
-    const _n2 = n * 2;
-    const _m2 = m * 2;
-    return tree[_n2] < tree[_m2] || tree[_n2] === tree[_m2] && depth[n] <= depth[m];
-  };
-  var pqdownheap = (s, tree, k) => {
-    const v = s.heap[k];
-    let j = k << 1;
-    while (j <= s.heap_len) {
-      if (j < s.heap_len && smaller(tree, s.heap[j + 1], s.heap[j], s.depth)) j++;
-      if (smaller(tree, v, s.heap[j], s.depth)) break;
-      s.heap[k] = s.heap[j];
-      k = j;
-      j <<= 1;
-    }
-    s.heap[k] = v;
-  };
-  var compress_block = (s, ltree, dtree) => {
-    let dist;
-    let lc;
-    let sx = 0;
-    let code;
-    let extra;
-    if (s.sym_next !== 0) do {
-      dist = s.pending_buf[s.sym_buf + sx++] & 255;
-      dist += (s.pending_buf[s.sym_buf + sx++] & 255) << 8;
-      lc = s.pending_buf[s.sym_buf + sx++];
-      if (dist === 0) send_code(s, lc, ltree);
-      else {
-        code = _length_code[lc];
-        send_code(s, code + LITERALS + 1, ltree);
-        extra = extra_lbits[code];
-        if (extra !== 0) {
-          lc -= base_length[code];
-          send_bits(s, lc, extra);
-        }
-        dist--;
-        code = d_code(dist);
-        send_code(s, code, dtree);
-        extra = extra_dbits[code];
-        if (extra !== 0) {
-          dist -= base_dist[code];
-          send_bits(s, dist, extra);
-        }
-      }
-    } while (sx < s.sym_next);
-    send_code(s, END_BLOCK, ltree);
-  };
-  var build_tree = (s, desc) => {
-    const tree = desc.dyn_tree;
-    const stree = desc.stat_desc.static_tree;
-    const has_stree = desc.stat_desc.has_stree;
-    const elems = desc.stat_desc.elems;
-    let n, m;
-    let max_code = -1;
-    let node;
-    s.heap_len = 0;
-    s.heap_max = HEAP_SIZE$1;
-    for (n = 0; n < elems; n++) if (tree[n * 2] !== 0) {
-      s.heap[++s.heap_len] = max_code = n;
-      s.depth[n] = 0;
-    } else tree[n * 2 + 1] = 0;
-    while (s.heap_len < 2) {
-      node = s.heap[++s.heap_len] = max_code < 2 ? ++max_code : 0;
-      tree[node * 2] = 1;
-      s.depth[node] = 0;
-      s.opt_len--;
-      if (has_stree) s.static_len -= stree[node * 2 + 1];
-    }
-    desc.max_code = max_code;
-    for (n = s.heap_len >> 1; n >= 1; n--) pqdownheap(s, tree, n);
-    node = elems;
-    do {
-      n = s.heap[1];
-      s.heap[1] = s.heap[s.heap_len--];
-      pqdownheap(s, tree, 1);
-      m = s.heap[1];
-      s.heap[--s.heap_max] = n;
-      s.heap[--s.heap_max] = m;
-      tree[node * 2] = tree[n * 2] + tree[m * 2];
-      s.depth[node] = (s.depth[n] >= s.depth[m] ? s.depth[n] : s.depth[m]) + 1;
-      tree[n * 2 + 1] = tree[m * 2 + 1] = node;
-      s.heap[1] = node++;
-      pqdownheap(s, tree, 1);
-    } while (s.heap_len >= 2);
-    s.heap[--s.heap_max] = s.heap[1];
-    gen_bitlen(s, desc);
-    gen_codes(tree, max_code, s.bl_count);
-  };
-  var scan_tree = (s, tree, max_code) => {
-    let n;
-    let prevlen = -1;
-    let curlen;
-    let nextlen = tree[1];
-    let count = 0;
-    let max_count = 7;
-    let min_count = 4;
-    if (nextlen === 0) {
-      max_count = 138;
-      min_count = 3;
-    }
-    tree[(max_code + 1) * 2 + 1] = 65535;
-    for (n = 0; n <= max_code; n++) {
-      curlen = nextlen;
-      nextlen = tree[(n + 1) * 2 + 1];
-      if (++count < max_count && curlen === nextlen) continue;
-      else if (count < min_count) s.bl_tree[curlen * 2] += count;
-      else if (curlen !== 0) {
-        if (curlen !== prevlen) s.bl_tree[curlen * 2]++;
-        s.bl_tree[REP_3_6 * 2]++;
-      } else if (count <= 10) s.bl_tree[REPZ_3_10 * 2]++;
-      else s.bl_tree[REPZ_11_138 * 2]++;
-      count = 0;
-      prevlen = curlen;
-      if (nextlen === 0) {
-        max_count = 138;
-        min_count = 3;
-      } else if (curlen === nextlen) {
-        max_count = 6;
-        min_count = 3;
-      } else {
-        max_count = 7;
-        min_count = 4;
-      }
-    }
-  };
-  var send_tree = (s, tree, max_code) => {
-    let n;
-    let prevlen = -1;
-    let curlen;
-    let nextlen = tree[1];
-    let count = 0;
-    let max_count = 7;
-    let min_count = 4;
-    if (nextlen === 0) {
-      max_count = 138;
-      min_count = 3;
-    }
-    for (n = 0; n <= max_code; n++) {
-      curlen = nextlen;
-      nextlen = tree[(n + 1) * 2 + 1];
-      if (++count < max_count && curlen === nextlen) continue;
-      else if (count < min_count) do
-        send_code(s, curlen, s.bl_tree);
-      while (--count !== 0);
-      else if (curlen !== 0) {
-        if (curlen !== prevlen) {
-          send_code(s, curlen, s.bl_tree);
-          count--;
-        }
-        send_code(s, REP_3_6, s.bl_tree);
-        send_bits(s, count - 3, 2);
-      } else if (count <= 10) {
-        send_code(s, REPZ_3_10, s.bl_tree);
-        send_bits(s, count - 3, 3);
-      } else {
-        send_code(s, REPZ_11_138, s.bl_tree);
-        send_bits(s, count - 11, 7);
-      }
-      count = 0;
-      prevlen = curlen;
-      if (nextlen === 0) {
-        max_count = 138;
-        min_count = 3;
-      } else if (curlen === nextlen) {
-        max_count = 6;
-        min_count = 3;
-      } else {
-        max_count = 7;
-        min_count = 4;
-      }
-    }
-  };
-  var build_bl_tree = (s) => {
-    let max_blindex;
-    scan_tree(s, s.dyn_ltree, s.l_desc.max_code);
-    scan_tree(s, s.dyn_dtree, s.d_desc.max_code);
-    build_tree(s, s.bl_desc);
-    for (max_blindex = BL_CODES - 1; max_blindex >= 3; max_blindex--) if (s.bl_tree[bl_order[max_blindex] * 2 + 1] !== 0) break;
-    s.opt_len += 3 * (max_blindex + 1) + 5 + 5 + 4;
-    return max_blindex;
-  };
-  var send_all_trees = (s, lcodes, dcodes, blcodes) => {
-    let rank2;
-    send_bits(s, lcodes - 257, 5);
-    send_bits(s, dcodes - 1, 5);
-    send_bits(s, blcodes - 4, 4);
-    for (rank2 = 0; rank2 < blcodes; rank2++) send_bits(s, s.bl_tree[bl_order[rank2] * 2 + 1], 3);
-    send_tree(s, s.dyn_ltree, lcodes - 1);
-    send_tree(s, s.dyn_dtree, dcodes - 1);
-  };
-  var detect_data_type = (s) => {
-    let block_mask = 4093624447;
-    let n;
-    for (n = 0; n <= 31; n++, block_mask >>>= 1) if (block_mask & 1 && s.dyn_ltree[n * 2] !== 0) return Z_BINARY;
-    if (s.dyn_ltree[18] !== 0 || s.dyn_ltree[20] !== 0 || s.dyn_ltree[26] !== 0) return Z_TEXT;
-    for (n = 32; n < LITERALS; n++) if (s.dyn_ltree[n * 2] !== 0) return Z_TEXT;
-    return Z_BINARY;
-  };
-  var static_init_done = false;
-  var _tr_init = (s) => {
-    if (!static_init_done) {
-      tr_static_init();
-      static_init_done = true;
-    }
-    s.l_desc = new TreeDesc(s.dyn_ltree, static_l_desc);
-    s.d_desc = new TreeDesc(s.dyn_dtree, static_d_desc);
-    s.bl_desc = new TreeDesc(s.bl_tree, static_bl_desc);
-    s.bi_buf = 0;
-    s.bi_valid = 0;
-    init_block(s);
-  };
-  var _tr_stored_block = (s, buf, stored_len, last2) => {
-    send_bits(s, (STORED_BLOCK << 1) + (last2 ? 1 : 0), 3);
-    bi_windup(s);
-    put_short(s, stored_len);
-    put_short(s, ~stored_len);
-    if (stored_len) s.pending_buf.set(s.window.subarray(buf, buf + stored_len), s.pending);
-    s.pending += stored_len;
-  };
-  var _tr_align = (s) => {
-    send_bits(s, STATIC_TREES << 1, 3);
-    send_code(s, END_BLOCK, static_ltree);
-    bi_flush(s);
-  };
-  var _tr_flush_block = (s, buf, stored_len, last2) => {
-    let opt_lenb, static_lenb;
-    let max_blindex = 0;
-    if (s.level > 0) {
-      if (s.strm.data_type === Z_UNKNOWN) s.strm.data_type = detect_data_type(s);
-      build_tree(s, s.l_desc);
-      build_tree(s, s.d_desc);
-      max_blindex = build_bl_tree(s);
-      opt_lenb = s.opt_len + 3 + 7 >>> 3;
-      static_lenb = s.static_len + 3 + 7 >>> 3;
-      if (static_lenb <= opt_lenb) opt_lenb = static_lenb;
-    } else opt_lenb = static_lenb = stored_len + 5;
-    if (stored_len + 4 <= opt_lenb && buf !== -1) _tr_stored_block(s, buf, stored_len, last2);
-    else if (s.strategy === Z_FIXED || static_lenb === opt_lenb) {
-      send_bits(s, (STATIC_TREES << 1) + (last2 ? 1 : 0), 3);
-      compress_block(s, static_ltree, static_dtree);
-    } else {
-      send_bits(s, (DYN_TREES << 1) + (last2 ? 1 : 0), 3);
-      send_all_trees(s, s.l_desc.max_code + 1, s.d_desc.max_code + 1, max_blindex + 1);
-      compress_block(s, s.dyn_ltree, s.dyn_dtree);
-    }
-    init_block(s);
-    if (last2) bi_windup(s);
-  };
-  var _tr_tally = (s, dist, lc) => {
-    s.pending_buf[s.sym_buf + s.sym_next++] = dist;
-    s.pending_buf[s.sym_buf + s.sym_next++] = dist >> 8;
-    s.pending_buf[s.sym_buf + s.sym_next++] = lc;
-    if (dist === 0) s.dyn_ltree[lc * 2]++;
-    else {
-      s.matches++;
-      dist--;
-      s.dyn_ltree[(_length_code[lc] + LITERALS + 1) * 2]++;
-      s.dyn_dtree[d_code(dist) * 2]++;
-    }
-    return s.sym_next === s.sym_end;
-  };
-  var adler32 = (adler, buf, len, pos) => {
-    let s1 = adler & 65535 | 0, s2 = adler >>> 16 & 65535 | 0, n = 0;
-    while (len !== 0) {
-      n = len > 2e3 ? 2e3 : len;
-      len -= n;
-      do {
-        s1 = s1 + buf[pos++] | 0;
-        s2 = s2 + s1 | 0;
-      } while (--n);
-      s1 %= 65521;
-      s2 %= 65521;
-    }
-    return s1 | s2 << 16 | 0;
-  };
-  var makeTable = () => {
-    let c, table = [];
-    for (var n = 0; n < 256; n++) {
-      c = n;
-      for (var k = 0; k < 8; k++) c = c & 1 ? 3988292384 ^ c >>> 1 : c >>> 1;
-      table[n] = c;
-    }
-    return table;
-  };
-  var crcTable = new Uint32Array(makeTable());
-  var crc32$1 = (crc, buf, len, pos) => {
-    const t = crcTable;
-    const end = pos + len;
-    crc ^= -1;
-    for (let i = pos; i < end; i++) crc = crc >>> 8 ^ t[(crc ^ buf[i]) & 255];
-    return crc ^ -1;
-  };
-  var messages_default = {
-    2: "need dictionary",
-    1: "stream end",
-    0: "",
-    "-1": "file error",
-    "-2": "stream error",
-    "-3": "data error",
-    "-4": "insufficient memory",
-    "-5": "buffer error",
-    "-6": "incompatible version"
-  };
-  var MAX_MEM_LEVEL = 9;
-  var HEAP_SIZE = 573;
-  var MIN_MATCH = 3;
-  var MAX_MATCH = 258;
-  var MIN_LOOKAHEAD = 262;
-  var PRESET_DICT = 32;
-  var INIT_STATE = 42;
-  var GZIP_STATE = 57;
-  var EXTRA_STATE = 69;
-  var NAME_STATE = 73;
-  var COMMENT_STATE = 91;
-  var HCRC_STATE = 103;
-  var BUSY_STATE = 113;
-  var FINISH_STATE = 666;
-  var BS_NEED_MORE = 1;
-  var BS_BLOCK_DONE = 2;
-  var BS_FINISH_STARTED = 3;
-  var BS_FINISH_DONE = 4;
-  var OS_CODE = 3;
-  var err = (strm, errorCode) => {
-    strm.msg = messages_default[errorCode];
-    return errorCode;
-  };
-  var rank = (f) => {
-    return f * 2 - (f > 4 ? 9 : 0);
-  };
-  var zero = (buf) => {
-    let len = buf.length;
-    while (--len >= 0) buf[len] = 0;
-  };
-  var slide_hash = (s) => {
-    let n, m;
-    let p;
-    let wsize = s.w_size;
-    n = s.hash_size;
-    p = n;
-    do {
-      m = s.head[--p];
-      s.head[p] = m >= wsize ? m - wsize : 0;
-    } while (--n);
-    n = wsize;
-    p = n;
-    do {
-      m = s.prev[--p];
-      s.prev[p] = m >= wsize ? m - wsize : 0;
-    } while (--n);
-  };
-  var HASH = (s, prev, data) => (prev << s.hash_shift ^ data) & s.hash_mask;
-  var INSERT_STRING = (s, str) => {
-    let h;
-    if (s.legacy_hash) h = s.ins_h = HASH(s, s.ins_h, s.window[str + MIN_MATCH - 1]);
-    else {
-      const w = s.window;
-      const value = w[str] | w[str + 1] << 8 | w[str + 2] << 16 | w[str + 3] << 24;
-      h = s.ins_h = Math.imul(value, 66521) + 66521 >>> 16 & s.hash_mask;
-    }
-    const hash_head = s.prev[str & s.w_mask] = s.head[h];
-    s.head[h] = str;
-    return hash_head;
-  };
-  var flush_pending = (strm) => {
-    const s = strm.state;
-    let len = s.pending;
-    if (len > strm.avail_out) len = strm.avail_out;
-    if (len === 0) return;
-    strm.output.set(s.pending_buf.subarray(s.pending_out, s.pending_out + len), strm.next_out);
-    strm.next_out += len;
-    s.pending_out += len;
-    strm.total_out += len;
-    strm.avail_out -= len;
-    s.pending -= len;
-    if (s.pending === 0) s.pending_out = 0;
-  };
-  var flush_block_only = (s, last2) => {
-    _tr_flush_block(s, s.block_start >= 0 ? s.block_start : -1, s.strstart - s.block_start, last2);
-    s.block_start = s.strstart;
-    flush_pending(s.strm);
-  };
-  var put_byte = (s, b) => {
-    s.pending_buf[s.pending++] = b;
-  };
-  var putShortMSB = (s, b) => {
-    s.pending_buf[s.pending++] = b >>> 8 & 255;
-    s.pending_buf[s.pending++] = b & 255;
-  };
-  var read_buf = (strm, buf, start, size) => {
-    let len = strm.avail_in;
-    if (len > size) len = size;
-    if (len === 0) return 0;
-    strm.avail_in -= len;
-    buf.set(strm.input.subarray(strm.next_in, strm.next_in + len), start);
-    if (strm.state.wrap === 1) strm.adler = adler32(strm.adler, buf, len, start);
-    else if (strm.state.wrap === 2) strm.adler = crc32$1(strm.adler, buf, len, start);
-    strm.next_in += len;
-    strm.total_in += len;
-    return len;
-  };
-  var longest_match = (s, cur_match) => {
-    let chain_length = s.max_chain_length;
-    let scan = s.strstart;
-    let match;
-    let len;
-    let best_len = s.prev_length;
-    let nice_match = s.nice_match;
-    const limit = s.strstart > s.w_size - MIN_LOOKAHEAD ? s.strstart - (s.w_size - MIN_LOOKAHEAD) : 0;
-    const _win = s.window;
-    const wmask = s.w_mask;
-    const prev = s.prev;
-    const strend = s.strstart + MAX_MATCH;
-    let scan_end1 = _win[scan + best_len - 1];
-    let scan_end = _win[scan + best_len];
-    if (s.prev_length >= s.good_match) chain_length >>= 2;
-    if (nice_match > s.lookahead) nice_match = s.lookahead;
-    do {
-      match = cur_match;
-      if (_win[match + best_len] !== scan_end || _win[match + best_len - 1] !== scan_end1 || _win[match] !== _win[scan] || _win[++match] !== _win[scan + 1]) continue;
-      scan += 2;
-      match++;
-      do
-        ;
-      while (_win[++scan] === _win[++match] && _win[++scan] === _win[++match] && _win[++scan] === _win[++match] && _win[++scan] === _win[++match] && _win[++scan] === _win[++match] && _win[++scan] === _win[++match] && _win[++scan] === _win[++match] && _win[++scan] === _win[++match] && scan < strend);
-      len = MAX_MATCH - (strend - scan);
-      scan = strend - MAX_MATCH;
-      if (len > best_len) {
-        s.match_start = cur_match;
-        best_len = len;
-        if (len >= nice_match) break;
-        scan_end1 = _win[scan + best_len - 1];
-        scan_end = _win[scan + best_len];
-      }
-    } while ((cur_match = prev[cur_match & wmask]) > limit && --chain_length !== 0);
-    if (best_len <= s.lookahead) return best_len;
-    return s.lookahead;
-  };
-  var fill_window = (s) => {
-    const _w_size = s.w_size;
-    let n, more, str;
-    do {
-      more = s.window_size - s.lookahead - s.strstart;
-      if (s.strstart >= _w_size + (_w_size - MIN_LOOKAHEAD)) {
-        s.window.set(s.window.subarray(_w_size, _w_size + _w_size - more), 0);
-        s.match_start -= _w_size;
-        s.strstart -= _w_size;
-        s.block_start -= _w_size;
-        if (s.insert > s.strstart) s.insert = s.strstart;
-        slide_hash(s);
-        more += _w_size;
-      }
-      if (s.strm.avail_in === 0) break;
-      n = read_buf(s.strm, s.window, s.strstart + s.lookahead, more);
-      s.lookahead += n;
-      if (!s.legacy_hash) {
-        if (s.lookahead + s.insert > MIN_MATCH) {
-          str = s.strstart - s.insert;
-          while (s.insert) {
-            INSERT_STRING(s, str);
-            str++;
-            s.insert--;
-            if (s.lookahead + s.insert <= MIN_MATCH) break;
-          }
-        }
-      } else if (s.lookahead + s.insert >= MIN_MATCH) {
-        str = s.strstart - s.insert;
-        s.ins_h = s.window[str];
-        s.ins_h = HASH(s, s.ins_h, s.window[str + 1]);
-        while (s.insert) {
-          INSERT_STRING(s, str);
-          str++;
-          s.insert--;
-          if (s.lookahead + s.insert < MIN_MATCH) break;
-        }
-      }
-    } while (s.lookahead < MIN_LOOKAHEAD && s.strm.avail_in !== 0);
-  };
-  var deflate_stored = (s, flush) => {
-    let min_block = s.pending_buf_size - 5 > s.w_size ? s.w_size : s.pending_buf_size - 5;
-    let len, left, have, last2 = 0;
-    let used = s.strm.avail_in;
-    do {
-      len = 65535;
-      have = s.bi_valid + 42 >> 3;
-      if (s.strm.avail_out < have) break;
-      have = s.strm.avail_out - have;
-      left = s.strstart - s.block_start;
-      if (len > left + s.strm.avail_in) len = left + s.strm.avail_in;
-      if (len > have) len = have;
-      if (len < min_block && (len === 0 && flush !== 4 || flush === 0 || len !== left + s.strm.avail_in)) break;
-      last2 = flush === 4 && len === left + s.strm.avail_in ? 1 : 0;
-      _tr_stored_block(s, 0, 0, last2);
-      s.pending_buf[s.pending - 4] = len;
-      s.pending_buf[s.pending - 3] = len >> 8;
-      s.pending_buf[s.pending - 2] = ~len;
-      s.pending_buf[s.pending - 1] = ~len >> 8;
-      flush_pending(s.strm);
-      if (left) {
-        if (left > len) left = len;
-        s.strm.output.set(s.window.subarray(s.block_start, s.block_start + left), s.strm.next_out);
-        s.strm.next_out += left;
-        s.strm.avail_out -= left;
-        s.strm.total_out += left;
-        s.block_start += left;
-        len -= left;
-      }
-      if (len) {
-        read_buf(s.strm, s.strm.output, s.strm.next_out, len);
-        s.strm.next_out += len;
-        s.strm.avail_out -= len;
-        s.strm.total_out += len;
-      }
-    } while (last2 === 0);
-    used -= s.strm.avail_in;
-    if (used) {
-      if (used >= s.w_size) {
-        s.matches = 2;
-        s.window.set(s.strm.input.subarray(s.strm.next_in - s.w_size, s.strm.next_in), 0);
-        s.strstart = s.w_size;
-        s.insert = s.strstart;
-      } else {
-        if (s.window_size - s.strstart <= used) {
-          s.strstart -= s.w_size;
-          s.window.set(s.window.subarray(s.w_size, s.w_size + s.strstart), 0);
-          if (s.matches < 2) s.matches++;
-          if (s.insert > s.strstart) s.insert = s.strstart;
-        }
-        s.window.set(s.strm.input.subarray(s.strm.next_in - used, s.strm.next_in), s.strstart);
-        s.strstart += used;
-        s.insert += used > s.w_size - s.insert ? s.w_size - s.insert : used;
-      }
-      s.block_start = s.strstart;
-    }
-    if (s.high_water < s.strstart) s.high_water = s.strstart;
-    if (last2) return BS_FINISH_DONE;
-    if (flush !== 0 && flush !== 4 && s.strm.avail_in === 0 && s.strstart === s.block_start) return BS_BLOCK_DONE;
-    have = s.window_size - s.strstart;
-    if (s.strm.avail_in > have && s.block_start >= s.w_size) {
-      s.block_start -= s.w_size;
-      s.strstart -= s.w_size;
-      s.window.set(s.window.subarray(s.w_size, s.w_size + s.strstart), 0);
-      if (s.matches < 2) s.matches++;
-      have += s.w_size;
-      if (s.insert > s.strstart) s.insert = s.strstart;
-    }
-    if (have > s.strm.avail_in) have = s.strm.avail_in;
-    if (have) {
-      read_buf(s.strm, s.window, s.strstart, have);
-      s.strstart += have;
-      s.insert += have > s.w_size - s.insert ? s.w_size - s.insert : have;
-    }
-    if (s.high_water < s.strstart) s.high_water = s.strstart;
-    have = s.bi_valid + 42 >> 3;
-    have = s.pending_buf_size - have > 65535 ? 65535 : s.pending_buf_size - have;
-    min_block = have > s.w_size ? s.w_size : have;
-    left = s.strstart - s.block_start;
-    if (left >= min_block || (left || flush === 4) && flush !== 0 && s.strm.avail_in === 0 && left <= have) {
-      len = left > have ? have : left;
-      last2 = flush === 4 && s.strm.avail_in === 0 && len === left ? 1 : 0;
-      _tr_stored_block(s, s.block_start, len, last2);
-      s.block_start += len;
-      flush_pending(s.strm);
-    }
-    return last2 ? BS_FINISH_STARTED : BS_NEED_MORE;
-  };
-  var deflate_fast = (s, flush) => {
-    let hash_head;
-    let bflush;
-    for (; ; ) {
-      if (s.lookahead < MIN_LOOKAHEAD) {
-        fill_window(s);
-        if (s.lookahead < MIN_LOOKAHEAD && flush === 0) return BS_NEED_MORE;
-        if (s.lookahead === 0) break;
-      }
-      hash_head = 0;
-      if (s.lookahead >= MIN_MATCH) hash_head = INSERT_STRING(s, s.strstart);
-      if (hash_head !== 0 && s.strstart - hash_head <= s.w_size - MIN_LOOKAHEAD) s.match_length = longest_match(s, hash_head);
-      if (s.match_length >= MIN_MATCH) {
-        bflush = _tr_tally(s, s.strstart - s.match_start, s.match_length - MIN_MATCH);
-        s.lookahead -= s.match_length;
-        if (s.match_length <= s.max_lazy_match && s.lookahead >= MIN_MATCH) {
-          s.match_length--;
-          do {
-            s.strstart++;
-            hash_head = INSERT_STRING(s, s.strstart);
-          } while (--s.match_length !== 0);
-          s.strstart++;
-        } else {
-          s.strstart += s.match_length;
-          s.match_length = 0;
-          if (s.legacy_hash) {
-            s.ins_h = s.window[s.strstart];
-            s.ins_h = HASH(s, s.ins_h, s.window[s.strstart + 1]);
-          }
-        }
-      } else {
-        bflush = _tr_tally(s, 0, s.window[s.strstart]);
-        s.lookahead--;
-        s.strstart++;
-      }
-      if (bflush) {
-        flush_block_only(s, false);
-        if (s.strm.avail_out === 0) return BS_NEED_MORE;
-      }
-    }
-    s.insert = s.strstart < MIN_MATCH - 1 ? s.strstart : MIN_MATCH - 1;
-    if (flush === 4) {
-      flush_block_only(s, true);
-      if (s.strm.avail_out === 0) return BS_FINISH_STARTED;
-      return BS_FINISH_DONE;
-    }
-    if (s.sym_next) {
-      flush_block_only(s, false);
-      if (s.strm.avail_out === 0) return BS_NEED_MORE;
-    }
-    return BS_BLOCK_DONE;
-  };
-  var deflate_slow = (s, flush) => {
-    let hash_head;
-    let bflush;
-    let max_insert;
-    for (; ; ) {
-      if (s.lookahead < MIN_LOOKAHEAD) {
-        fill_window(s);
-        if (s.lookahead < MIN_LOOKAHEAD && flush === 0) return BS_NEED_MORE;
-        if (s.lookahead === 0) break;
-      }
-      hash_head = 0;
-      if (s.lookahead >= MIN_MATCH) hash_head = INSERT_STRING(s, s.strstart);
-      s.prev_length = s.match_length;
-      s.prev_match = s.match_start;
-      s.match_length = MIN_MATCH - 1;
-      if (hash_head !== 0 && s.prev_length < s.max_lazy_match && s.strstart - hash_head <= s.w_size - MIN_LOOKAHEAD) {
-        s.match_length = longest_match(s, hash_head);
-        if (s.match_length <= 5 && (s.strategy === 1 || s.match_length === MIN_MATCH && s.strstart - s.match_start > 4096)) s.match_length = MIN_MATCH - 1;
-      }
-      if (s.prev_length >= MIN_MATCH && s.match_length <= s.prev_length) {
-        max_insert = s.strstart + s.lookahead - MIN_MATCH;
-        bflush = _tr_tally(s, s.strstart - 1 - s.prev_match, s.prev_length - MIN_MATCH);
-        s.lookahead -= s.prev_length - 1;
-        s.prev_length -= 2;
-        do
-          if (++s.strstart <= max_insert) hash_head = INSERT_STRING(s, s.strstart);
-        while (--s.prev_length !== 0);
-        s.match_available = 0;
-        s.match_length = MIN_MATCH - 1;
-        s.strstart++;
-        if (bflush) {
-          flush_block_only(s, false);
-          if (s.strm.avail_out === 0) return BS_NEED_MORE;
-        }
-      } else if (s.match_available) {
-        bflush = _tr_tally(s, 0, s.window[s.strstart - 1]);
-        if (bflush)
-          flush_block_only(s, false);
-        s.strstart++;
-        s.lookahead--;
-        if (s.strm.avail_out === 0) return BS_NEED_MORE;
-      } else {
-        s.match_available = 1;
-        s.strstart++;
-        s.lookahead--;
-      }
-    }
-    if (s.match_available) {
-      bflush = _tr_tally(s, 0, s.window[s.strstart - 1]);
-      s.match_available = 0;
-    }
-    s.insert = s.strstart < MIN_MATCH - 1 ? s.strstart : MIN_MATCH - 1;
-    if (flush === 4) {
-      flush_block_only(s, true);
-      if (s.strm.avail_out === 0) return BS_FINISH_STARTED;
-      return BS_FINISH_DONE;
-    }
-    if (s.sym_next) {
-      flush_block_only(s, false);
-      if (s.strm.avail_out === 0) return BS_NEED_MORE;
-    }
-    return BS_BLOCK_DONE;
-  };
-  var deflate_rle = (s, flush) => {
-    let bflush;
-    let prev;
-    let scan, strend;
-    const _win = s.window;
-    for (; ; ) {
-      if (s.lookahead <= MAX_MATCH) {
-        fill_window(s);
-        if (s.lookahead <= MAX_MATCH && flush === 0) return BS_NEED_MORE;
-        if (s.lookahead === 0) break;
-      }
-      s.match_length = 0;
-      if (s.lookahead >= MIN_MATCH && s.strstart > 0) {
-        scan = s.strstart - 1;
-        prev = _win[scan];
-        if (prev === _win[++scan] && prev === _win[++scan] && prev === _win[++scan]) {
-          strend = s.strstart + MAX_MATCH;
-          do
-            ;
-          while (prev === _win[++scan] && prev === _win[++scan] && prev === _win[++scan] && prev === _win[++scan] && prev === _win[++scan] && prev === _win[++scan] && prev === _win[++scan] && prev === _win[++scan] && scan < strend);
-          s.match_length = MAX_MATCH - (strend - scan);
-          if (s.match_length > s.lookahead) s.match_length = s.lookahead;
-        }
-      }
-      if (s.match_length >= MIN_MATCH) {
-        bflush = _tr_tally(s, 1, s.match_length - MIN_MATCH);
-        s.lookahead -= s.match_length;
-        s.strstart += s.match_length;
-        s.match_length = 0;
-      } else {
-        bflush = _tr_tally(s, 0, s.window[s.strstart]);
-        s.lookahead--;
-        s.strstart++;
-      }
-      if (bflush) {
-        flush_block_only(s, false);
-        if (s.strm.avail_out === 0) return BS_NEED_MORE;
-      }
-    }
-    s.insert = 0;
-    if (flush === 4) {
-      flush_block_only(s, true);
-      if (s.strm.avail_out === 0) return BS_FINISH_STARTED;
-      return BS_FINISH_DONE;
-    }
-    if (s.sym_next) {
-      flush_block_only(s, false);
-      if (s.strm.avail_out === 0) return BS_NEED_MORE;
-    }
-    return BS_BLOCK_DONE;
-  };
-  var deflate_huff = (s, flush) => {
-    let bflush;
-    for (; ; ) {
-      if (s.lookahead === 0) {
-        fill_window(s);
-        if (s.lookahead === 0) {
-          if (flush === 0) return BS_NEED_MORE;
-          break;
-        }
-      }
-      s.match_length = 0;
-      bflush = _tr_tally(s, 0, s.window[s.strstart]);
-      s.lookahead--;
-      s.strstart++;
-      if (bflush) {
-        flush_block_only(s, false);
-        if (s.strm.avail_out === 0) return BS_NEED_MORE;
-      }
-    }
-    s.insert = 0;
-    if (flush === 4) {
-      flush_block_only(s, true);
-      if (s.strm.avail_out === 0) return BS_FINISH_STARTED;
-      return BS_FINISH_DONE;
-    }
-    if (s.sym_next) {
-      flush_block_only(s, false);
-      if (s.strm.avail_out === 0) return BS_NEED_MORE;
-    }
-    return BS_BLOCK_DONE;
-  };
-  var Config = class {
-    constructor(good_length, max_lazy, nice_length, max_chain, func) {
-      this.good_length = good_length;
-      this.max_lazy = max_lazy;
-      this.nice_length = nice_length;
-      this.max_chain = max_chain;
-      this.func = func;
-    }
-  };
-  var configuration_table = [
-    new Config(0, 0, 0, 0, deflate_stored),
-    new Config(4, 4, 8, 4, deflate_fast),
-    new Config(4, 5, 16, 8, deflate_fast),
-    new Config(4, 6, 32, 32, deflate_fast),
-    new Config(4, 4, 16, 16, deflate_slow),
-    new Config(8, 16, 32, 32, deflate_slow),
-    new Config(8, 16, 128, 128, deflate_slow),
-    new Config(8, 32, 128, 256, deflate_slow),
-    new Config(32, 128, 258, 1024, deflate_slow),
-    new Config(32, 258, 258, 4096, deflate_slow)
-  ];
-  var lm_init = (s) => {
-    s.window_size = 2 * s.w_size;
-    zero(s.head);
-    s.max_lazy_match = configuration_table[s.level].max_lazy;
-    s.good_match = configuration_table[s.level].good_length;
-    s.nice_match = configuration_table[s.level].nice_length;
-    s.max_chain_length = configuration_table[s.level].max_chain;
-    s.strstart = 0;
-    s.block_start = 0;
-    s.lookahead = 0;
-    s.insert = 0;
-    s.match_length = s.prev_length = MIN_MATCH - 1;
-    s.match_available = 0;
-    s.ins_h = 0;
-  };
-  var DeflateState = class {
-    constructor() {
-      this.strm = null;
-      this.status = 0;
-      this.pending_buf = null;
-      this.pending_buf_size = 0;
-      this.pending_out = 0;
-      this.pending = 0;
-      this.wrap = 0;
-      this.gzhead = null;
-      this.gzindex = 0;
-      this.method = 8;
-      this.last_flush = -1;
-      this.w_size = 0;
-      this.w_bits = 0;
-      this.w_mask = 0;
-      this.window = null;
-      this.window_size = 0;
-      this.prev = null;
-      this.head = null;
-      this.ins_h = 0;
-      this.legacy_hash = 0;
-      this.hash_size = 0;
-      this.hash_bits = 0;
-      this.hash_mask = 0;
-      this.hash_shift = 0;
-      this.block_start = 0;
-      this.match_length = 0;
-      this.prev_match = 0;
-      this.match_available = 0;
-      this.strstart = 0;
-      this.match_start = 0;
-      this.lookahead = 0;
-      this.prev_length = 0;
-      this.max_chain_length = 0;
-      this.max_lazy_match = 0;
-      this.level = 0;
-      this.strategy = 0;
-      this.good_match = 0;
-      this.nice_match = 0;
-      this.dyn_ltree = new Uint16Array(HEAP_SIZE * 2);
-      this.dyn_dtree = /* @__PURE__ */ new Uint16Array(122);
-      this.bl_tree = /* @__PURE__ */ new Uint16Array(78);
-      zero(this.dyn_ltree);
-      zero(this.dyn_dtree);
-      zero(this.bl_tree);
-      this.l_desc = null;
-      this.d_desc = null;
-      this.bl_desc = null;
-      this.bl_count = /* @__PURE__ */ new Uint16Array(16);
-      this.heap = /* @__PURE__ */ new Uint16Array(573);
-      zero(this.heap);
-      this.heap_len = 0;
-      this.heap_max = 0;
-      this.depth = /* @__PURE__ */ new Uint16Array(573);
-      zero(this.depth);
-      this.sym_buf = 0;
-      this.lit_bufsize = 0;
-      this.sym_next = 0;
-      this.sym_end = 0;
-      this.opt_len = 0;
-      this.static_len = 0;
-      this.matches = 0;
-      this.insert = 0;
-      this.bi_buf = 0;
-      this.bi_valid = 0;
-    }
-  };
-  var deflateStateCheck = (strm) => {
-    if (!strm) return 1;
-    const s = strm.state;
-    if (!s || s.strm !== strm || s.status !== INIT_STATE && s.status !== GZIP_STATE && s.status !== EXTRA_STATE && s.status !== NAME_STATE && s.status !== COMMENT_STATE && s.status !== HCRC_STATE && s.status !== BUSY_STATE && s.status !== FINISH_STATE) return 1;
-    return 0;
-  };
-  var deflateResetKeep = (strm) => {
-    if (deflateStateCheck(strm)) return err(strm, -2);
-    strm.total_in = strm.total_out = 0;
-    strm.data_type = 2;
-    const s = strm.state;
-    s.pending = 0;
-    s.pending_out = 0;
-    if (s.wrap < 0) s.wrap = -s.wrap;
-    s.status = s.wrap === 2 ? GZIP_STATE : s.wrap ? INIT_STATE : BUSY_STATE;
-    strm.adler = s.wrap === 2 ? 0 : 1;
-    s.last_flush = -2;
-    _tr_init(s);
-    return 0;
-  };
-  var deflateReset = (strm) => {
-    const ret = deflateResetKeep(strm);
-    if (ret === 0) lm_init(strm.state);
-    return ret;
-  };
-  var deflateInit2 = (strm, level, method, windowBits, memLevel, strategy, legacyHash) => {
-    if (!strm) return -2;
-    let wrap = 1;
-    if (level === -1) level = 6;
-    if (windowBits < 0) {
-      wrap = 0;
-      windowBits = -windowBits;
-    } else if (windowBits > 15) {
-      wrap = 2;
-      windowBits -= 16;
-    }
-    if (memLevel < 1 || memLevel > MAX_MEM_LEVEL || method !== 8 || windowBits < 8 || windowBits > 15 || level < 0 || level > 9 || strategy < 0 || strategy > 4 || windowBits === 8 && wrap !== 1) return err(strm, -2);
-    if (windowBits === 8) windowBits = 9;
-    const s = new DeflateState();
-    strm.state = s;
-    s.strm = strm;
-    s.status = INIT_STATE;
-    s.wrap = wrap;
-    s.gzhead = null;
-    s.w_bits = windowBits;
-    s.w_size = 1 << s.w_bits;
-    s.w_mask = s.w_size - 1;
-    s.legacy_hash = legacyHash ? 1 : 0;
-    s.hash_bits = memLevel + 7;
-    if (!s.legacy_hash && s.hash_bits < 15) s.hash_bits = 15;
-    s.hash_size = 1 << s.hash_bits;
-    s.hash_mask = s.hash_size - 1;
-    s.hash_shift = ~~((s.hash_bits + MIN_MATCH - 1) / MIN_MATCH);
-    s.window = new Uint8Array(s.w_size * 2);
-    s.head = new Uint16Array(s.hash_size);
-    s.prev = new Uint16Array(s.w_size);
-    s.lit_bufsize = 1 << memLevel + 6;
-    s.pending_buf_size = s.lit_bufsize * 4;
-    s.pending_buf = new Uint8Array(s.pending_buf_size);
-    s.sym_buf = s.lit_bufsize;
-    s.sym_end = (s.lit_bufsize - 1) * 3;
-    s.level = level;
-    s.strategy = strategy;
-    s.method = method;
-    return deflateReset(strm);
-  };
-  var deflate$1 = (strm, flush) => {
-    if (deflateStateCheck(strm) || flush > 5 || flush < 0) return strm ? err(strm, -2) : -2;
-    const s = strm.state;
-    if (!strm.output || strm.avail_in !== 0 && !strm.input || s.status === FINISH_STATE && flush !== 4) return err(strm, strm.avail_out === 0 ? -5 : -2);
-    const old_flush = s.last_flush;
-    s.last_flush = flush;
-    if (s.pending !== 0) {
-      flush_pending(strm);
-      if (strm.avail_out === 0) {
-        s.last_flush = -1;
-        return 0;
-      }
-    } else if (strm.avail_in === 0 && rank(flush) <= rank(old_flush) && flush !== 4) return err(strm, -5);
-    if (s.status === FINISH_STATE && strm.avail_in !== 0) return err(strm, -5);
-    if (s.status === INIT_STATE && s.wrap === 0) s.status = BUSY_STATE;
-    if (s.status === INIT_STATE) {
-      let header = 8 + (s.w_bits - 8 << 4) << 8;
-      let level_flags = -1;
-      if (s.strategy >= 2 || s.level < 2) level_flags = 0;
-      else if (s.level < 6) level_flags = 1;
-      else if (s.level === 6) level_flags = 2;
-      else level_flags = 3;
-      header |= level_flags << 6;
-      if (s.strstart !== 0) header |= PRESET_DICT;
-      header += 31 - header % 31;
-      putShortMSB(s, header);
-      if (s.strstart !== 0) {
-        putShortMSB(s, strm.adler >>> 16);
-        putShortMSB(s, strm.adler & 65535);
-      }
-      strm.adler = 1;
-      s.status = BUSY_STATE;
-      flush_pending(strm);
-      if (s.pending !== 0) {
-        s.last_flush = -1;
-        return 0;
-      }
-    }
-    if (s.status === GZIP_STATE) {
-      strm.adler = 0;
-      put_byte(s, 31);
-      put_byte(s, 139);
-      put_byte(s, 8);
-      if (!s.gzhead) {
-        put_byte(s, 0);
-        put_byte(s, 0);
-        put_byte(s, 0);
-        put_byte(s, 0);
-        put_byte(s, 0);
-        put_byte(s, s.level === 9 ? 2 : s.strategy >= 2 || s.level < 2 ? 4 : 0);
-        put_byte(s, OS_CODE);
-        s.status = BUSY_STATE;
-        flush_pending(strm);
-        if (s.pending !== 0) {
-          s.last_flush = -1;
-          return 0;
-        }
-      } else {
-        put_byte(s, (s.gzhead.text ? 1 : 0) + (s.gzhead.hcrc ? 2 : 0) + (!s.gzhead.extra ? 0 : 4) + (!s.gzhead.name ? 0 : 8) + (!s.gzhead.comment ? 0 : 16));
-        put_byte(s, s.gzhead.time & 255);
-        put_byte(s, s.gzhead.time >> 8 & 255);
-        put_byte(s, s.gzhead.time >> 16 & 255);
-        put_byte(s, s.gzhead.time >> 24 & 255);
-        put_byte(s, s.level === 9 ? 2 : s.strategy >= 2 || s.level < 2 ? 4 : 0);
-        put_byte(s, s.gzhead.os & 255);
-        if (s.gzhead.extra && s.gzhead.extra.length) {
-          put_byte(s, s.gzhead.extra.length & 255);
-          put_byte(s, s.gzhead.extra.length >> 8 & 255);
-        }
-        if (s.gzhead.hcrc) strm.adler = crc32$1(strm.adler, s.pending_buf, s.pending, 0);
-        s.gzindex = 0;
-        s.status = EXTRA_STATE;
-      }
-    }
-    if (s.status === EXTRA_STATE) {
-      if (s.gzhead.extra) {
-        let beg = s.pending;
-        let left = (s.gzhead.extra.length & 65535) - s.gzindex;
-        while (s.pending + left > s.pending_buf_size) {
-          let copy = s.pending_buf_size - s.pending;
-          s.pending_buf.set(s.gzhead.extra.subarray(s.gzindex, s.gzindex + copy), s.pending);
-          s.pending = s.pending_buf_size;
-          if (s.gzhead.hcrc && s.pending > beg) strm.adler = crc32$1(strm.adler, s.pending_buf, s.pending - beg, beg);
-          s.gzindex += copy;
-          flush_pending(strm);
-          if (s.pending !== 0) {
-            s.last_flush = -1;
-            return 0;
-          }
-          beg = 0;
-          left -= copy;
-        }
-        let gzhead_extra = new Uint8Array(s.gzhead.extra);
-        s.pending_buf.set(gzhead_extra.subarray(s.gzindex, s.gzindex + left), s.pending);
-        s.pending += left;
-        if (s.gzhead.hcrc && s.pending > beg) strm.adler = crc32$1(strm.adler, s.pending_buf, s.pending - beg, beg);
-        s.gzindex = 0;
-      }
-      s.status = NAME_STATE;
-    }
-    if (s.status === NAME_STATE) {
-      if (s.gzhead.name) {
-        let beg = s.pending;
-        let val;
-        do {
-          if (s.pending === s.pending_buf_size) {
-            if (s.gzhead.hcrc && s.pending > beg) strm.adler = crc32$1(strm.adler, s.pending_buf, s.pending - beg, beg);
-            flush_pending(strm);
-            if (s.pending !== 0) {
-              s.last_flush = -1;
-              return 0;
-            }
-            beg = 0;
-          }
-          if (s.gzindex < s.gzhead.name.length) val = s.gzhead.name.charCodeAt(s.gzindex++) & 255;
-          else val = 0;
-          put_byte(s, val);
-        } while (val !== 0);
-        if (s.gzhead.hcrc && s.pending > beg) strm.adler = crc32$1(strm.adler, s.pending_buf, s.pending - beg, beg);
-        s.gzindex = 0;
-      }
-      s.status = COMMENT_STATE;
-    }
-    if (s.status === COMMENT_STATE) {
-      if (s.gzhead.comment) {
-        let beg = s.pending;
-        let val;
-        do {
-          if (s.pending === s.pending_buf_size) {
-            if (s.gzhead.hcrc && s.pending > beg) strm.adler = crc32$1(strm.adler, s.pending_buf, s.pending - beg, beg);
-            flush_pending(strm);
-            if (s.pending !== 0) {
-              s.last_flush = -1;
-              return 0;
-            }
-            beg = 0;
-          }
-          if (s.gzindex < s.gzhead.comment.length) val = s.gzhead.comment.charCodeAt(s.gzindex++) & 255;
-          else val = 0;
-          put_byte(s, val);
-        } while (val !== 0);
-        if (s.gzhead.hcrc && s.pending > beg) strm.adler = crc32$1(strm.adler, s.pending_buf, s.pending - beg, beg);
-      }
-      s.status = HCRC_STATE;
-    }
-    if (s.status === HCRC_STATE) {
-      if (s.gzhead.hcrc) {
-        if (s.pending + 2 > s.pending_buf_size) {
-          flush_pending(strm);
-          if (s.pending !== 0) {
-            s.last_flush = -1;
-            return 0;
-          }
-        }
-        put_byte(s, strm.adler & 255);
-        put_byte(s, strm.adler >> 8 & 255);
-        strm.adler = 0;
-      }
-      s.status = BUSY_STATE;
-      flush_pending(strm);
-      if (s.pending !== 0) {
-        s.last_flush = -1;
-        return 0;
-      }
-    }
-    if (strm.avail_in !== 0 || s.lookahead !== 0 || flush !== 0 && s.status !== FINISH_STATE) {
-      let bstate = s.level === 0 ? deflate_stored(s, flush) : s.strategy === 2 ? deflate_huff(s, flush) : s.strategy === 3 ? deflate_rle(s, flush) : configuration_table[s.level].func(s, flush);
-      if (bstate === BS_FINISH_STARTED || bstate === BS_FINISH_DONE) s.status = FINISH_STATE;
-      if (bstate === BS_NEED_MORE || bstate === BS_FINISH_STARTED) {
-        if (strm.avail_out === 0) s.last_flush = -1;
-        return 0;
-      }
-      if (bstate === BS_BLOCK_DONE) {
-        if (flush === 1) _tr_align(s);
-        else if (flush !== 5) {
-          _tr_stored_block(s, 0, 0, false);
-          if (flush === 3) {
-            zero(s.head);
-            if (s.lookahead === 0) {
-              s.strstart = 0;
-              s.block_start = 0;
-              s.insert = 0;
-            }
-          }
-        }
-        flush_pending(strm);
-        if (strm.avail_out === 0) {
-          s.last_flush = -1;
-          return 0;
-        }
-      }
-    }
-    if (flush !== 4) return 0;
-    if (s.wrap <= 0) return 1;
-    if (s.wrap === 2) {
-      put_byte(s, strm.adler & 255);
-      put_byte(s, strm.adler >> 8 & 255);
-      put_byte(s, strm.adler >> 16 & 255);
-      put_byte(s, strm.adler >> 24 & 255);
-      put_byte(s, strm.total_in & 255);
-      put_byte(s, strm.total_in >> 8 & 255);
-      put_byte(s, strm.total_in >> 16 & 255);
-      put_byte(s, strm.total_in >> 24 & 255);
-    } else {
-      putShortMSB(s, strm.adler >>> 16);
-      putShortMSB(s, strm.adler & 65535);
-    }
-    flush_pending(strm);
-    if (s.wrap > 0) s.wrap = -s.wrap;
-    return s.pending !== 0 ? 0 : 1;
-  };
-  var deflateEnd = (strm) => {
-    if (deflateStateCheck(strm)) return -2;
-    const status = strm.state.status;
-    strm.state = null;
-    return status === BUSY_STATE ? err(strm, -3) : 0;
-  };
-  var deflateSetDictionary = (strm, dictionary) => {
-    let dictLength = dictionary.length;
-    if (deflateStateCheck(strm)) return -2;
-    const s = strm.state;
-    const wrap = s.wrap;
-    if (wrap === 2 || wrap === 1 && s.status !== INIT_STATE || s.lookahead) return -2;
-    if (wrap === 1) strm.adler = adler32(strm.adler, dictionary, dictLength, 0);
-    s.wrap = 0;
-    if (dictLength >= s.w_size) {
-      if (wrap === 0) {
-        zero(s.head);
-        s.strstart = 0;
-        s.block_start = 0;
-        s.insert = 0;
-      }
-      let tmpDict = new Uint8Array(s.w_size);
-      tmpDict.set(dictionary.subarray(dictLength - s.w_size, dictLength), 0);
-      dictionary = tmpDict;
-      dictLength = s.w_size;
-    }
-    const avail = strm.avail_in;
-    const next = strm.next_in;
-    const input = strm.input;
-    strm.avail_in = dictLength;
-    strm.next_in = 0;
-    strm.input = dictionary;
-    fill_window(s);
-    while (s.lookahead >= MIN_MATCH) {
-      let str = s.strstart;
-      let n = s.lookahead - (MIN_MATCH - 1);
-      do {
-        INSERT_STRING(s, str);
-        str++;
-      } while (--n);
-      s.strstart = str;
-      s.lookahead = MIN_MATCH - 1;
-      fill_window(s);
-    }
-    s.strstart += s.lookahead;
-    s.block_start = s.strstart;
-    s.insert = s.lookahead;
-    s.lookahead = 0;
-    s.match_length = s.prev_length = MIN_MATCH - 1;
-    s.match_available = 0;
-    strm.next_in = next;
-    strm.input = input;
-    strm.avail_in = avail;
-    s.wrap = wrap;
-    return 0;
-  };
-  var ZStream = class {
-    constructor() {
-      this.input = null;
-      this.next_in = 0;
-      this.avail_in = 0;
-      this.total_in = 0;
-      this.output = null;
-      this.next_out = 0;
-      this.avail_out = 0;
-      this.total_out = 0;
-      this.msg = "";
-      this.state = null;
-      this.data_type = 2;
-      this.adler = 0;
-    }
-  };
-  var flattenChunks = (chunks) => {
-    const result = new Uint8Array(chunks.reduce((len, chunk2) => len + chunk2.length, 0));
-    let pos = 0;
-    for (const chunk2 of chunks) {
-      result.set(chunk2, pos);
-      pos += chunk2.length;
-    }
-    return result;
-  };
-  var toString$1 = Object.prototype.toString;
-  var defaultOptions$1 = {
-    level: -1,
-    chunkSize: 16384,
-    windowBits: 15,
-    memLevel: 8,
-    strategy: 0,
-    raw: false,
-    gzip: false,
-    legacyHash: false,
-    dictionary: /* @__PURE__ */ new Uint8Array(0)
-  };
-  var Deflate = class {
-    /**
-    * Creates a new deflator instance with the specified params. Throws an
-    * exception on bad params. See {@link DeflateOptions} for the list of
-    * supported options.
-    *
-    * @example
-    * ```javascript
-    * import { Deflate } from 'pako'
-    *
-    * const chunk1 = new Uint8Array([1, 2, 3, 4, 5, 6, 7, 8, 9])
-    * const chunk2 = new Uint8Array([10, 11, 12, 13, 14, 15, 16, 17, 18, 19])
-    *
-    * const deflate = new Deflate({ level: 3 })
-    *
-    * deflate.push(chunk1, false)
-    * deflate.push(chunk2, true)  // true -> last chunk
-    *
-    * if (deflate.err) throw new Error(deflate.err)
-    *
-    * console.log(deflate.result)
-    * ```
-    */
-    constructor(options = {}) {
       __publicField(this, "options");
-      /**
-      * Error code after deflate finishes. {@link Z_OK} on success.
-      * You will not need it in real life, because deflate errors
-      * are possible only on wrong options or bad custom `onData` / `onEnd`
-      * handlers.
-      */
-      __publicField(this, "err");
-      /** Error message, if {@link Deflate.err} is not {@link Z_OK}. */
-      __publicField(this, "msg");
-      __publicField(this, "ended");
-      __publicField(this, "started");
-      /**
-      * Chunks of output data, if {@link Deflate.onData} not overridden.
-      * @internal
-      */
-      __publicField(this, "chunks");
-      __publicField(this, "strm");
-      /**
-      * Compressed result, generated by default {@link Deflate.onData}
-      * and {@link Deflate.onEnd} handlers. Filled after you push last chunk
-      * (call {@link Deflate.push} with {@link Z_FINISH} / `true` param).
-      */
-      __publicField(this, "result");
-      this.options = Object.assign({}, defaultOptions$1, options);
-      const opt = this.options;
-      if (opt.raw && opt.windowBits > 0) opt.windowBits = -opt.windowBits;
-      else if (opt.gzip && opt.windowBits > 0 && opt.windowBits < 16) opt.windowBits += 16;
-      this.err = 0;
-      this.msg = "";
-      this.ended = false;
-      this.started = false;
-      this.chunks = [];
-      this.result = /* @__PURE__ */ new Uint8Array(0);
-      this.strm = new ZStream();
-      this.strm.avail_out = 0;
-      let status = deflateInit2(this.strm, opt.level, 8, opt.windowBits, opt.memLevel, opt.strategy, opt.legacyHash);
-      if (status !== 0) throw new Error(messages_default[status]);
-      if (toString$1.call(opt.dictionary) === "[object ArrayBuffer]") opt.dictionary = new Uint8Array(opt.dictionary);
-      const dictionary = opt.dictionary;
-      if (dictionary.length) {
-        if (opt.gzip) throw new Error("dictionary is not supported with gzip");
-        status = deflateSetDictionary(this.strm, dictionary);
-        if (status !== 0) throw new Error(messages_default[status]);
-      }
+      this.options = new XRModuleSessionOptions();
     }
-    /**
-    * Sends input data to the deflate pipe, generating {@link Deflate.onData} calls
-    * with new compressed chunks. Returns `true` on success. The last data block must
-    * have `flush_mode` {@link Z_FINISH} (or `true`). That will flush the internal
-    * pending buffers and call {@link Deflate.onEnd}.
-    *
-    * On failure, calls {@link Deflate.onEnd} with the error code and returns false.
-    *
-    * @param data input data. Strings will be converted to utf8 byte sequence.
-    * @param flush_mode 0..6 for corresponding {@link Z_NO_FLUSH}..{@link Z_TREES} modes.
-    *   See constants. Skipped or `false` means {@link Z_NO_FLUSH}, `true` means {@link Z_FINISH}.
-    *
-    * @example
-    * ```javascript
-    * push(chunk, false) // push one of data chunks
-    * ...
-    * push(chunk, true)  // push last chunk
-    * ```
-    */
-    push(data, flush_mode = false) {
-      const strm = this.strm;
-      const chunkSize = this.options.chunkSize;
-      let status;
-      let _flush_mode;
-      if (this.ended) return false;
-      if (typeof flush_mode === "number") _flush_mode = flush_mode;
-      else _flush_mode = flush_mode === true ? 4 : 0;
-      if (typeof data === "string") strm.input = new TextEncoder().encode(data);
-      else if (toString$1.call(data) === "[object ArrayBuffer]") strm.input = new Uint8Array(data);
-      else strm.input = data;
-      strm.next_in = 0;
-      strm.avail_in = strm.input.length;
-      if (!this.started) {
-        this.started = true;
-        this.onStart(strm);
+    dispose() {
+      this.clearXRStateChangedObservable();
+    }
+    async init(scene, options) {
+      if (this.xr) {
+        return this.xr;
       }
-      for (; ; ) {
-        if (strm.avail_out === 0) {
-          strm.output = new Uint8Array(chunkSize);
-          strm.next_out = 0;
-          strm.avail_out = chunkSize;
+      if (options) {
+        this.options = options;
+      }
+      applyWebXRCameraAccessFix();
+      if (this.options.disableDefaultUI) {
+        await this.initWithCustomUI(scene);
+      } else {
+        await this.initWithDefaultUI(scene);
+      }
+      this.addXRStateChangedObservable();
+      return this.xr;
+    }
+    async initWithDefaultUI(scene) {
+      try {
+        const requiredFeatures = this.options.requiredFeatures;
+        const optionalFeatures = this.options.optionalFeatures;
+        this.xr = await scene.createDefaultXRExperienceAsync({
+          uiOptions: {
+            sessionMode: "immersive-ar",
+            referenceSpaceType: "local",
+            onError: this.options.onError,
+            requiredFeatures,
+            optionalFeatures
+          }
+        });
+        if (this.options.enableDomOverlay) {
+          if (this.xr.baseExperience) {
+            const { featuresManager } = this.xr.baseExperience;
+            featuresManager.enableFeature(babylonjs.WebXRDomOverlay, "latest", {
+              element: this.options.domOverlayElementName
+            });
+          }
         }
-        if ((_flush_mode === 2 || _flush_mode === 3) && strm.avail_out <= 6) {
-          this.onData(strm.output.subarray(0, strm.next_out));
-          strm.avail_out = 0;
-          continue;
-        }
-        status = deflate$1(strm, _flush_mode);
-        if (status === -2) break;
-        if (status === 1) {
-          if (strm.next_out > 0) this.onData(strm.output.subarray(0, strm.next_out));
-          status = deflateEnd(this.strm);
-          break;
-        }
-        if (strm.avail_out === 0) {
-          this.onData(strm.output);
-          continue;
-        }
-        if (_flush_mode > 0 && strm.next_out > 0) {
-          this.onData(strm.output.subarray(0, strm.next_out));
-          strm.avail_out = 0;
-          continue;
-        }
-        if (strm.avail_in === 0) return true;
+      } catch (error) {
+        console.error(error);
       }
-      this.err = status;
-      this.msg = strm.msg || messages_default[status];
-      this.ended = true;
-      this.onEnd(status);
-      return status === 0;
     }
-    /**
-    * Called once before the first low-level deflate call.
-    */
-    onStart(strm) {
-    }
-    /**
-    * By default, stores data blocks in the {@link Deflate.chunks} property and glues
-    * them in {@link Deflate.onEnd}. Override this handler if you need another behaviour.
-    */
-    onData(chunk2) {
-      this.chunks.push(chunk2);
-    }
-    /**
-    * Called once after you tell deflate that the input stream is
-    * complete ({@link Z_FINISH}). By default, joins the collected {@link Deflate.chunks}
-    * into the {@link Deflate.result} property.
-    *
-    * @param status deflate status. {@link Z_OK} on success, other if not.
-    */
-    onEnd(status) {
-      if (status === 0) this.result = flattenChunks(this.chunks);
-      this.chunks = [];
-    }
-  };
-  function deflate(input, options = {}) {
-    const deflator = new Deflate(options);
-    deflator.push(input, true);
-    if (deflator.err) throw new Error(deflator.msg);
-    return deflator.result;
-  }
-  const CRC_TABLE = (() => {
-    const table = new Uint32Array(256);
-    for (let n = 0; n < 256; n++) {
-      let c = n;
-      for (let k = 0; k < 8; k++) {
-        c = c & 1 ? 3988292384 ^ c >>> 1 : c >>> 1;
+    async initWithCustomUI(scene) {
+      this.xr = await scene.createDefaultXRExperienceAsync({
+        disableDefaultUI: this.options.disableDefaultUI
+      });
+      const isSupported = await this.xr.baseExperience.sessionManager.isSessionSupportedAsync("immersive-ar");
+      if (!isSupported) {
+        const error = new Error("app.immersal.webxr.startXR: immersive-ar is not supported.");
+        error.name = ErrorWebXR.NOT_SUPPPORTED;
+        throw error;
       }
-      table[n] = c >>> 0;
     }
-    return table;
-  })();
-  function crc32(bytes2) {
-    let crc = 4294967295;
-    for (let i = 0; i < bytes2.length; i++) {
-      crc = CRC_TABLE[(crc ^ bytes2[i]) & 255] ^ crc >>> 8;
-    }
-    return (crc ^ 4294967295) >>> 0;
-  }
-  function chunk(type, data) {
-    const out = new Uint8Array(12 + data.length);
-    const view2 = new DataView(out.buffer);
-    view2.setUint32(0, data.length);
-    for (let i = 0; i < 4; i++) {
-      out[4 + i] = type.charCodeAt(i);
-    }
-    out.set(data, 8);
-    view2.setUint32(8 + data.length, crc32(out.subarray(4, 8 + data.length)));
-    return out;
-  }
-  function encodeGrayPng(gray, width, height) {
-    const ihdr = new Uint8Array(13);
-    const ihdrView = new DataView(ihdr.buffer);
-    ihdrView.setUint32(0, width);
-    ihdrView.setUint32(4, height);
-    ihdr[8] = 8;
-    const src = gray instanceof Uint8Array ? gray : new Uint8Array(gray.buffer, gray.byteOffset, gray.byteLength);
-    const raw = new Uint8Array((width + 1) * height);
-    for (let y = 0; y < height; y++) {
-      raw.set(src.subarray(y * width, (y + 1) * width), y * (width + 1) + 1);
-    }
-    const idat = deflate(raw, { level: 0 });
-    const signature = new Uint8Array([137, 80, 78, 71, 13, 10, 26, 10]);
-    const parts = [signature, chunk("IHDR", ihdr), chunk("IDAT", idat), chunk("IEND", new Uint8Array(0))];
-    const total = parts.reduce((sum, p) => sum + p.length, 0);
-    const png = new Uint8Array(total);
-    let offset = 0;
-    for (const part of parts) {
-      png.set(part, offset);
-      offset += part.length;
-    }
-    return png.buffer;
-  }
-  const BASE64_CODES = new Uint8Array(64);
-  for (let i = 0; i < 64; i++) {
-    BASE64_CODES[i] = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/".charCodeAt(i);
-  }
-  function base64FromArrayBuffer(buffer) {
-    const bytes2 = new Uint8Array(buffer);
-    const n = bytes2.length;
-    const out = new Uint8Array(Math.ceil(n / 3) * 4);
-    let o = 0;
-    const nFull = n - n % 3;
-    for (let i = 0; i < nFull; i += 3) {
-      const v = bytes2[i] << 16 | bytes2[i + 1] << 8 | bytes2[i + 2];
-      out[o++] = BASE64_CODES[v >> 18 & 63];
-      out[o++] = BASE64_CODES[v >> 12 & 63];
-      out[o++] = BASE64_CODES[v >> 6 & 63];
-      out[o++] = BASE64_CODES[v & 63];
-    }
-    if (n % 3 === 1) {
-      const v = bytes2[nFull] << 16;
-      out[o++] = BASE64_CODES[v >> 18 & 63];
-      out[o++] = BASE64_CODES[v >> 12 & 63];
-      out[o++] = 61;
-      out[o++] = 61;
-    } else if (n % 3 === 2) {
-      const v = bytes2[nFull] << 16 | bytes2[nFull + 1] << 8;
-      out[o++] = BASE64_CODES[v >> 18 & 63];
-      out[o++] = BASE64_CODES[v >> 12 & 63];
-      out[o++] = BASE64_CODES[v >> 6 & 63];
-      out[o++] = 61;
-    }
-    const parts = [];
-    const chunk2 = 32768;
-    for (let i = 0; i < out.length; i += chunk2) {
-      parts.push(String.fromCharCode.apply(null, out.subarray(i, i + chunk2)));
-    }
-    return parts.join("");
-  }
-  class ImmersalWebCloud extends ImmersalBase {
-    constructor(token, mapIds) {
-      super(token, mapIds);
-      __publicField(this, "pngEncoderWorker");
-    }
-    async init() {
-      if (IS_BABYLON_NATIVE_JSCORE || typeof Worker === "undefined") {
-        return Promise.resolve();
+    async startXR() {
+      if (!this.xr) {
+        return;
       }
-      const workerUrl = new URL("/js/pngEncoderWorker.js", window.location.origin).href;
-      this.pngEncoderWorker = new Worker(workerUrl);
-      return Promise.resolve();
-    }
-    async loadMap() {
-      console.warn("immersal.web.cloud.loadMap not required.");
-      return Promise.resolve();
-    }
-    encodeImage(imageData, imageWidth, imageHeight) {
-      if (!this.pngEncoderWorker) {
-        return Promise.resolve(encodeGrayPng(imageData, imageWidth, imageHeight));
+      const sessionMode = "immersive-ar";
+      const referenceSpaceLocal = IS_BABYLON_NATIVE_JSCORE ? "unbounded" : "local";
+      const renderTarget = this.xr.renderTarget;
+      let domOverlay = void 0;
+      if (this.options.domOverlayElement) {
+        domOverlay = { root: this.options.domOverlayElement };
       }
-      return new Promise((resolve) => {
-        this.pngEncoderWorker.onmessage = (event) => {
-          resolve(event.data);
-        };
-        this.pngEncoderWorker.postMessage({ imageData, imageWidth, imageHeight });
+      const sessionCreationOptions = {
+        requiredFeatures: this.options.requiredFeatures,
+        optionalFeatures: this.options.optionalFeatures,
+        domOverlay
+      };
+      try {
+        await this.xr.baseExperience.enterXRAsync(sessionMode, referenceSpaceLocal, renderTarget, sessionCreationOptions);
+      } catch (e) {
+        let permissionDenied = false;
+        if (e instanceof DOMException) {
+          const domE = e;
+          permissionDenied = domE.name === "NotSupportedError";
+        }
+        if (permissionDenied) {
+          const error = new Error("app.immersal.webxr.startXR: permission denied.");
+          error.name = ErrorWebXR.PERMISSION_DENIED;
+          throw error;
+        } else {
+          const error = new Error("app.immersal.webxr.startXR: undefined.");
+          error.name = ErrorWebXR.UNDEFINED;
+          throw error;
+        }
+      }
+    }
+    async stopXR() {
+      if (!this.xr) {
+        return;
+      }
+      await this.xr.baseExperience.exitXRAsync();
+    }
+    get isXRRunning() {
+      var _a, _b, _c;
+      const xrRunning = !!((_c = (_b = (_a = this.xr) == null ? void 0 : _a.baseExperience) == null ? void 0 : _b.sessionManager) == null ? void 0 : _c.inXRSession);
+      return xrRunning;
+    }
+    addXRStateChangedObservable() {
+      if (!this.xr) {
+        return;
+      }
+      this.xr.baseExperience.onStateChangedObservable.add((state) => {
+        if (state === babylonjs.WebXRState.ENTERING_XR) {
+          if (this.options.onEnteringXR) {
+            this.options.onEnteringXR();
+          }
+        } else if (state === babylonjs.WebXRState.EXITING_XR) {
+          if (this.options.onExitingXR) {
+            this.options.onExitingXR();
+          }
+        } else if (state === babylonjs.WebXRState.IN_XR) {
+          if (this.options.onInXR) {
+            this.options.onInXR();
+          }
+        } else if (state === babylonjs.WebXRState.NOT_IN_XR) {
+          if (this.options.onNotInXR) {
+            this.options.onNotInXR();
+          }
+        }
       });
     }
-    async localize(imageData, imageWidth, imageHeight, intrinsics) {
-      if (!imageData || !imageWidth || !imageHeight || !intrinsics) {
-        throw new Error("immersal.web.cloud.localize - imageData, imageWidth, imageHeight and intrinsics are required.");
+    clearXRStateChangedObservable() {
+      if (!this.xr) {
+        return;
       }
-      try {
-        const mapIds = this.mapIds.map((mapId) => ({ id: parseInt(mapId.toString()) }));
-        const req = {
-          mapIds,
-          fx: intrinsics.focalLength.x,
-          fy: intrinsics.focalLength.y,
-          ox: intrinsics.principalOffset.x,
-          oy: intrinsics.principalOffset.y,
-          param1: 0,
-          // copy from three.js
-          param2: 12,
-          // copy from three.js
-          param3: 0,
-          // copy from three.js
-          param4: 2,
-          // copy from three.js
-          token: this.token
-        };
-        const tEncode0 = performance.now();
-        const buffer = await this.encodeImage(imageData, imageWidth, imageHeight);
-        const tEncode1 = performance.now();
-        let response;
-        if (IS_BABYLON_NATIVE_JSCORE) {
-          const b64 = base64FromArrayBuffer(buffer);
-          const tB64 = performance.now();
-          console.log(`immersal.web.cloud.localize: ${imageWidth}x${imageHeight} png=${(buffer.byteLength / 1024).toFixed(0)}kb encode=${(tEncode1 - tEncode0).toFixed(0)}ms base64=${(tB64 - tEncode1).toFixed(0)}ms`);
-          const reqB64 = { ...req, b64 };
-          response = await fetch("https://api.immersal.com/localizeb64", {
-            method: "POST",
-            body: JSON.stringify(reqB64)
-          });
-        } else {
-          const payload = new Blob([JSON.stringify(req), "\0", buffer]);
-          response = await fetch("https://api.immersal.com/localize", {
-            method: "POST",
-            body: payload
-          });
-        }
-        if (!response.ok) {
-          throw new Error("immersal.web.cloud.localize - network response was not ok");
-        }
-        const res = await response.json();
-        if (!res) {
-          throw new Error("immersal.web.cloud.localize: no result.");
-        }
-        if (IS_BABYLON_NATIVE_JSCORE && !res.success) {
-          console.log(`immersal.web.cloud.localize: response=${JSON.stringify(res)}`);
-        }
-        const locResult = {
-          success: false,
-          confidence: -1
-        };
-        if (res.success) {
-          let matrix = new babylonjs.Matrix();
-          matrix.setRowFromFloats(0, res.r00, -res.r01, -res.r02, res.px);
-          matrix.setRowFromFloats(1, res.r10, -res.r11, -res.r12, res.py);
-          matrix.setRowFromFloats(2, res.r20, -res.r21, -res.r22, res.pz);
-          matrix.setRowFromFloats(3, 0, 0, 0, 1);
-          matrix = matrix.transpose();
-          locResult.success = true;
-          locResult.matrix = new Float32Array(16);
-          matrix.toArray(locResult.matrix, 0);
-          locResult.confidence = res.confidence ?? locResult.confidence;
-          locResult.map = res.map;
-        }
-        return locResult;
-      } catch (error) {
-        if (error instanceof Error) {
-          throw new Error(`${error.message || error}`);
-        } else {
-          throw new Error(String(error));
-        }
-      }
-    }
-  }
-  class ImmersalAppCloud extends ImmersalBase {
-    constructor(token, mapIds) {
-      super(token, mapIds);
-      __publicField(this, "bridge");
-      this.bridge = new BridgeImmersal();
-    }
-    async init() {
-      console.warn("immersal.app.cloud.init not required.");
-      return Promise.resolve();
-    }
-    async loadMap(_url) {
-      console.warn("immersal.app.cloud.loadMap not required.");
-      return Promise.resolve();
-    }
-    async localize(_imageData, _imageWidth, _imageHeight, _intrinsics) {
-      try {
-        const data = await this.bridge.localizeOnCloud(this.token, this.mapIds);
-        if (data.error && data.error !== "none") {
-          throw new Error("immersal.app.cloud.localize: failed - " + data.error);
-        }
-        const locResult = {
-          success: false,
-          confidence: 0,
-          matrix: void 0
-        };
-        if (data.success) {
-          let matrix = new babylonjs.Matrix();
-          matrix.setRowFromFloats(0, data.r00, -data.r01, -data.r02, data.px);
-          matrix.setRowFromFloats(1, data.r10, -data.r11, -data.r12, data.py);
-          matrix.setRowFromFloats(2, data.r20, -data.r21, -data.r22, data.pz);
-          matrix.setRowFromFloats(3, 0, 0, 0, 1);
-          matrix = matrix.transpose();
-          locResult.success = true;
-          locResult.confidence = data.confidence;
-          locResult.matrix = new Float32Array(16);
-          locResult.map = data.map;
-          matrix.toArray(locResult.matrix, 0);
-        }
-        return locResult;
-      } catch (error) {
-        if (error instanceof Error) {
-          throw new Error(`${error.message || error}`);
-        } else {
-          throw new Error(String(error));
-        }
-      }
+      this.xr.baseExperience.onStateChangedObservable.clear();
     }
   }
   function assert$3(condition, message) {
@@ -3199,8 +880,8 @@ var __publicField = (obj, key, value) => __defNormalProp(obj, typeof key !== "sy
   }
   async function concatenateArrayBuffersAsync(asyncIterator) {
     const arrayBuffers = [];
-    for await (const chunk2 of asyncIterator) {
-      arrayBuffers.push(chunk2);
+    for await (const chunk of asyncIterator) {
+      arrayBuffers.push(chunk);
     }
     return concatenateArrayBuffers(...arrayBuffers);
   }
@@ -4351,9 +2032,9 @@ var __publicField = (obj, key, value) => __defNormalProp(obj, typeof key !== "sy
     const textEncoder = new TextEncoder();
     while (offset < string.length) {
       const chunkLength = Math.min(string.length - offset, chunkSize);
-      const chunk2 = string.slice(offset, offset + chunkLength);
+      const chunk = string.slice(offset, offset + chunkLength);
       offset += chunkLength;
-      yield textEncoder.encode(chunk2);
+      yield textEncoder.encode(chunk);
     }
   }
   const DEFAULT_CHUNK_SIZE$2 = 256 * 1024;
@@ -4366,12 +2047,12 @@ var __publicField = (obj, key, value) => __defNormalProp(obj, typeof key !== "sy
       let byteOffset = 0;
       while (byteOffset < arrayBuffer.byteLength) {
         const chunkByteLength = Math.min(arrayBuffer.byteLength - byteOffset, chunkSize);
-        const chunk2 = new ArrayBuffer(chunkByteLength);
+        const chunk = new ArrayBuffer(chunkByteLength);
         const sourceArray = new Uint8Array(arrayBuffer, byteOffset, chunkByteLength);
-        const chunkArray = new Uint8Array(chunk2);
+        const chunkArray = new Uint8Array(chunk);
         chunkArray.set(sourceArray);
         byteOffset += chunkByteLength;
-        yield chunk2;
+        yield chunk;
       }
     }();
   }
@@ -4381,9 +2062,9 @@ var __publicField = (obj, key, value) => __defNormalProp(obj, typeof key !== "sy
     let offset = 0;
     while (offset < blob.size) {
       const end = offset + chunkSize;
-      const chunk2 = await blob.slice(offset, end).arrayBuffer();
+      const chunk = await blob.slice(offset, end).arrayBuffer();
       offset = end;
-      yield chunk2;
+      yield chunk;
     }
   }
   function makeStreamIterator(stream, options) {
@@ -4412,8 +2093,8 @@ var __publicField = (obj, key, value) => __defNormalProp(obj, typeof key !== "sy
     }
   }
   async function* makeNodeStreamIterator(stream, options) {
-    for await (const chunk2 of stream) {
-      yield toArrayBuffer(chunk2);
+    for await (const chunk of stream) {
+      yield toArrayBuffer(chunk);
     }
   }
   function makeIterator(data, options) {
@@ -5659,7 +3340,7 @@ var __publicField = (obj, key, value) => __defNormalProp(obj, typeof key !== "sy
     try {
       const response = await fetch(asset.path, { signal });
       const buffer = await response.arrayBuffer();
-      const data = await parse(buffer, PLYLoader, { worker: false });
+      const data = await parse(buffer, PLYLoader, { worker: !IS_BABYLON_NATIVE_JSCORE });
       const pos = data.attributes.POSITION.value;
       const col = data.attributes.COLOR_0.value;
       const num = pos.length / 3;
@@ -6062,6 +3743,91 @@ var __publicField = (obj, key, value) => __defNormalProp(obj, typeof key !== "sy
       return Promise.reject(new Error("mediarecorder.base.stop must be overridden in the subclass"));
     }
   }
+  const _Bridge = class _Bridge {
+    constructor() {
+      __publicField(this, "callbacks", []);
+      __publicField(this, "subs", []);
+      if (typeof window !== "undefined") {
+        window.ejx = window.ejx || {};
+        window.ejx.response = window.ejx.response || _Bridge.ResponseCallback;
+      }
+      _Bridge.instances.push(this);
+    }
+    dispose() {
+      const index = _Bridge.instances.indexOf(this);
+      if (index !== -1) {
+        _Bridge.instances.splice(index, 1);
+      }
+    }
+    send(message, resolve, reject) {
+      var _a, _b, _c, _d, _e, _f, _g, _h;
+      const callback = {
+        message,
+        resolve,
+        reject
+      };
+      this.callbacks.push(callback);
+      let sent = true;
+      if ((_b = (_a = window.webkit) == null ? void 0 : _a.messageHandlers) == null ? void 0 : _b.eyejack) {
+        (_e = (_d = (_c = window.webkit) == null ? void 0 : _c.messageHandlers) == null ? void 0 : _d.eyejack) == null ? void 0 : _e.postMessage(message);
+      } else if ((_f = window.ARCore) == null ? void 0 : _f.eyejackMessage) {
+        (_h = (_g = window.ARCore) == null ? void 0 : _g.eyejackMessage) == null ? void 0 : _h.call(_g, message);
+      } else {
+        sent = false;
+      }
+      if (!sent) {
+        console.error("Bridge.send failed.");
+        this.callbacks.pop();
+      }
+    }
+    subscribe(uuid, func) {
+      const subIndex = this.subs.findIndex((sub) => sub.uuid === uuid);
+      if (subIndex === -1) {
+        const sub = {
+          uuid,
+          func
+        };
+        this.subs.push(sub);
+      }
+    }
+    unsubscribe(uuid) {
+      const subIndex = this.subs.findIndex((sub) => sub.uuid === uuid);
+      if (subIndex !== -1) {
+        this.subs.splice(subIndex, 1);
+      }
+    }
+    response(message) {
+      const callbackIndex = this.callbacks.findIndex((callback) => callback.message.uuid === message.uuid);
+      if (callbackIndex !== -1) {
+        const callback = this.callbacks[callbackIndex];
+        this.callbacks.splice(callbackIndex, 1);
+        if (message) {
+          callback.resolve(message.data);
+        } else {
+          callback.reject(new Error("Bridge.response error - callback response returned undefined."));
+        }
+      }
+      const subIndex = this.subs.findIndex((sub) => sub.uuid === message.uuid);
+      if (subIndex !== -1) {
+        const sub = this.subs[subIndex];
+        if (message) {
+          sub.func(message.data);
+        } else {
+          console.error("Bridge.response error - subscription response returned undefined.");
+        }
+      }
+    }
+  };
+  __publicField(_Bridge, "instances", []);
+  __publicField(_Bridge, "ResponseCallback", (data) => {
+    _Bridge.instances.forEach((instance) => {
+      instance.response(data);
+    });
+  });
+  let Bridge = _Bridge;
+  const BridgeMessageTypeMediaRecorderStart = "mediarecorder/start";
+  const BridgeMessageTypeMediaRecorderStop = "mediarecorder/stop";
+  const BridgeMessageTypeShare = "share";
   class BridgeMediaRecorder extends Bridge {
     constructor() {
       super();
@@ -6878,10 +4644,10 @@ var __publicField = (obj, key, value) => __defNormalProp(obj, typeof key !== "sy
       // This specifies that traf number, trun number and sample number are 32-bit ints
       u32(track.finalizedChunks.length),
       // Number of entries
-      track.finalizedChunks.map((chunk2) => [
-        u64(intoTimescale(chunk2.startTimestamp, track.timescale)),
+      track.finalizedChunks.map((chunk) => [
+        u64(intoTimescale(chunk.startTimestamp, track.timescale)),
         // Time
-        u64(chunk2.moofOffset),
+        u64(chunk.moofOffset),
         // moof offset
         u32(trackIndex + 1),
         // traf number
@@ -7146,18 +4912,18 @@ var __publicField = (obj, key, value) => __defNormalProp(obj, typeof key !== "sy
           });
         }
       }
-      for (let chunk2 of chunks) {
-        chunk2.data = new Uint8Array(chunk2.size);
+      for (let chunk of chunks) {
+        chunk.data = new Uint8Array(chunk.size);
         for (let section of __privateGet(this, _sections)) {
-          if (chunk2.start <= section.start && section.start < chunk2.start + chunk2.size) {
-            chunk2.data.set(section.data, section.start - chunk2.start);
+          if (chunk.start <= section.start && section.start < chunk.start + chunk.size) {
+            chunk.data.set(section.data, section.start - chunk.start);
           }
         }
         if (__privateGet(this, _chunked)) {
-          __privateMethod(this, _writeDataIntoChunks, writeDataIntoChunks_fn).call(this, chunk2.data, chunk2.start);
+          __privateMethod(this, _writeDataIntoChunks, writeDataIntoChunks_fn).call(this, chunk.data, chunk.start);
           __privateMethod(this, _flushChunks, flushChunks_fn).call(this);
         } else {
-          (_b = (_a = __privateGet(this, _target2).options).onData) == null ? void 0 : _b.call(_a, chunk2.data, chunk2.start);
+          (_b = (_a = __privateGet(this, _target2).options).onData) == null ? void 0 : _b.call(_a, chunk.data, chunk.start);
         }
       }
       __privateGet(this, _sections).length = 0;
@@ -7178,17 +4944,17 @@ var __publicField = (obj, key, value) => __defNormalProp(obj, typeof key !== "sy
     let chunkIndex = __privateGet(this, _chunks).findIndex((x) => x.start <= position && position < x.start + __privateGet(this, _chunkSize));
     if (chunkIndex === -1)
       chunkIndex = __privateMethod(this, _createChunk, createChunk_fn).call(this, position);
-    let chunk2 = __privateGet(this, _chunks)[chunkIndex];
-    let relativePosition = position - chunk2.start;
+    let chunk = __privateGet(this, _chunks)[chunkIndex];
+    let relativePosition = position - chunk.start;
     let toWrite = data.subarray(0, Math.min(__privateGet(this, _chunkSize) - relativePosition, data.byteLength));
-    chunk2.data.set(toWrite, relativePosition);
+    chunk.data.set(toWrite, relativePosition);
     let section = {
       start: relativePosition,
       end: relativePosition + toWrite.byteLength
     };
-    __privateMethod(this, _insertSectionIntoChunk, insertSectionIntoChunk_fn).call(this, chunk2, section);
-    if (chunk2.written[0].start === 0 && chunk2.written[0].end === __privateGet(this, _chunkSize)) {
-      chunk2.shouldFlush = true;
+    __privateMethod(this, _insertSectionIntoChunk, insertSectionIntoChunk_fn).call(this, chunk, section);
+    if (chunk.written[0].start === 0 && chunk.written[0].end === __privateGet(this, _chunkSize)) {
+      chunk.shouldFlush = true;
     }
     if (__privateGet(this, _chunks).length > MAX_CHUNKS_AT_ONCE) {
       for (let i = 0; i < __privateGet(this, _chunks).length - 1; i++) {
@@ -7201,52 +4967,52 @@ var __publicField = (obj, key, value) => __defNormalProp(obj, typeof key !== "sy
     }
   };
   _insertSectionIntoChunk = /* @__PURE__ */ new WeakSet();
-  insertSectionIntoChunk_fn = function(chunk2, section) {
+  insertSectionIntoChunk_fn = function(chunk, section) {
     let low = 0;
-    let high = chunk2.written.length - 1;
+    let high = chunk.written.length - 1;
     let index = -1;
     while (low <= high) {
       let mid = Math.floor(low + (high - low + 1) / 2);
-      if (chunk2.written[mid].start <= section.start) {
+      if (chunk.written[mid].start <= section.start) {
         low = mid + 1;
         index = mid;
       } else {
         high = mid - 1;
       }
     }
-    chunk2.written.splice(index + 1, 0, section);
-    if (index === -1 || chunk2.written[index].end < section.start)
+    chunk.written.splice(index + 1, 0, section);
+    if (index === -1 || chunk.written[index].end < section.start)
       index++;
-    while (index < chunk2.written.length - 1 && chunk2.written[index].end >= chunk2.written[index + 1].start) {
-      chunk2.written[index].end = Math.max(chunk2.written[index].end, chunk2.written[index + 1].end);
-      chunk2.written.splice(index + 1, 1);
+    while (index < chunk.written.length - 1 && chunk.written[index].end >= chunk.written[index + 1].start) {
+      chunk.written[index].end = Math.max(chunk.written[index].end, chunk.written[index + 1].end);
+      chunk.written.splice(index + 1, 1);
     }
   };
   _createChunk = /* @__PURE__ */ new WeakSet();
   createChunk_fn = function(includesPosition) {
     let start = Math.floor(includesPosition / __privateGet(this, _chunkSize)) * __privateGet(this, _chunkSize);
-    let chunk2 = {
+    let chunk = {
       start,
       data: new Uint8Array(__privateGet(this, _chunkSize)),
       written: [],
       shouldFlush: false
     };
-    __privateGet(this, _chunks).push(chunk2);
+    __privateGet(this, _chunks).push(chunk);
     __privateGet(this, _chunks).sort((a, b) => a.start - b.start);
-    return __privateGet(this, _chunks).indexOf(chunk2);
+    return __privateGet(this, _chunks).indexOf(chunk);
   };
   _flushChunks = /* @__PURE__ */ new WeakSet();
   flushChunks_fn = function(force = false) {
     var _a, _b;
     for (let i = 0; i < __privateGet(this, _chunks).length; i++) {
-      let chunk2 = __privateGet(this, _chunks)[i];
-      if (!chunk2.shouldFlush && !force)
+      let chunk = __privateGet(this, _chunks)[i];
+      if (!chunk.shouldFlush && !force)
         continue;
-      for (let section of chunk2.written) {
+      for (let section of chunk.written) {
         (_b = (_a = __privateGet(this, _target2).options).onData) == null ? void 0 : _b.call(
           _a,
-          chunk2.data.subarray(section.start, section.end),
-          chunk2.start + section.start
+          chunk.data.subarray(section.start, section.end),
+          chunk.start + section.start
         );
       }
       __privateGet(this, _chunks).splice(i--, 1);
@@ -7467,9 +5233,9 @@ var __publicField = (obj, key, value) => __defNormalProp(obj, typeof key !== "sy
           let movieBoxSize = __privateGet(this, _writer).measureBox(movieBox2);
           mdatSize = __privateGet(this, _writer).measureBox(__privateGet(this, _mdat));
           let currentChunkPos = __privateGet(this, _writer).pos + movieBoxSize + mdatSize;
-          for (let chunk2 of __privateGet(this, _finalizedChunks)) {
-            chunk2.offset = currentChunkPos;
-            for (let { data } of chunk2.samples) {
+          for (let chunk of __privateGet(this, _finalizedChunks)) {
+            chunk.offset = currentChunkPos;
+            for (let { data } of chunk.samples) {
               currentChunkPos += data.byteLength;
               mdatSize += data.byteLength;
             }
@@ -7483,8 +5249,8 @@ var __publicField = (obj, key, value) => __defNormalProp(obj, typeof key !== "sy
         __privateGet(this, _writer).writeBox(movieBox);
         __privateGet(this, _mdat).size = mdatSize;
         __privateGet(this, _writer).writeBox(__privateGet(this, _mdat));
-        for (let chunk2 of __privateGet(this, _finalizedChunks)) {
-          for (let sample of chunk2.samples) {
+        for (let chunk of __privateGet(this, _finalizedChunks)) {
+          for (let sample of chunk.samples) {
             __privateGet(this, _writer).write(sample.data);
             sample.data = null;
           }
@@ -8022,7 +5788,7 @@ If you want to offset all timestamps of a track such that the first one is zero,
         firstTimestampBehavior: "offset"
       });
       this.videoEncoder = new VideoEncoder({
-        output: (chunk2, meta) => this.muxer.addVideoChunk(chunk2, meta),
+        output: (chunk, meta) => this.muxer.addVideoChunk(chunk, meta),
         error: console.error
       });
       this.videoEncoder.configure({
@@ -8033,7 +5799,7 @@ If you want to offset all timestamps of a track such that the first one is zero,
       });
       if (this.audioTrack) {
         this.audioEncoder = new AudioEncoder({
-          output: (chunk2, meta) => this.muxer.addAudioChunk(chunk2, meta),
+          output: (chunk, meta) => this.muxer.addAudioChunk(chunk, meta),
           error: (e) => console.error(e)
         });
         if (audioSampleRate && audioNumberOfChannels) {
@@ -8645,15 +6411,6 @@ If you want to offset all timestamps of a track such that the first one is zero,
       return this.impl.share(data);
     }
   }
-  var ErrorWebXR = /* @__PURE__ */ ((ErrorWebXR2) => {
-    ErrorWebXR2["UNDEFINED"] = "UNDEFINED";
-    ErrorWebXR2["NOT_SUPPPORTED"] = "NOT_SUPPPORTED";
-    ErrorWebXR2["PERMISSION_DENIED"] = "PERMISSION_DENIED";
-    ErrorWebXR2["MOTION_PERMISSION_DENIED"] = "MOTION_PERMISSION_DENIED";
-    ErrorWebXR2["CAMERA_PERMISSION_DENIED"] = "CAMERA_PERMISSION_DENIED";
-    ErrorWebXR2["MIC_PERMISSION_DENIED"] = "MIC_PERMISSION_DENIED";
-    return ErrorWebXR2;
-  })(ErrorWebXR || {});
   function mitt(all) {
     all = all || /* @__PURE__ */ new Map();
     function emitFunc(type, evt) {
@@ -9225,1131 +6982,985 @@ If you want to offset all timestamps of a track such that the first one is zero,
       this.batch.unloadAsset(assetToUnload);
     }
   }
-  const BASE_URL = "https://api.immersal.com/";
-  const DOWNLOAD_MAP = "map";
-  const DOWNLOAD_SPARSE = "sparse";
-  const DOWNLOAD_DENSE = "dense";
-  const DOWNLOAD_TEXTURED = "tex";
-  const ImmersalSparseMapIdPrefix = "immersalSparseMap";
-  const ImmersalDenseMapIdPrefix = "immersalDenseMap";
-  const ImmersalTexturedMapIdPrefix = "immersalTexturedMap";
-  function ImmersalSparseMapId(mapId) {
-    return `${ImmersalSparseMapIdPrefix}-${mapId}`;
-  }
-  function ImmersalDenseMapId(mapId) {
-    return `${ImmersalDenseMapIdPrefix}-${mapId}`;
-  }
-  function ImmersalTexturedMapId(mapId) {
-    return `${ImmersalTexturedMapIdPrefix}-${mapId}`;
-  }
-  class AppImmersalMapConfig {
-    constructor(config) {
-      __publicField(this, "mapId", -1);
-      __publicField(this, "loadSparseMap", false);
-      __publicField(this, "loadDenseMap", false);
-      __publicField(this, "loadTexturedMesh", false);
-      __publicField(this, "binaryMapPath");
-      // optional, used to load assets locally instead of immersal servers.
-      __publicField(this, "sparseMapPath");
-      // optional, used to load assets locally instead of immersal servers.
-      __publicField(this, "denseMapPath");
-      // optional, used to load assets locally instead of immersal servers.
-      __publicField(this, "texturedMapPath");
-      // optional, used to load assets locally instead of immersal servers.
-      __publicField(this, "pointCloudSize", 10);
-      // default.
-      __publicField(this, "pointCloudColor");
-      __publicField(this, "position");
-      __publicField(this, "rotation");
-      __publicField(this, "matrix");
-      this.mapId = config.mapId;
-      this.loadSparseMap = config.loadSparseMap ?? this.loadSparseMap;
-      this.loadDenseMap = config.loadDenseMap ?? this.loadDenseMap;
-      this.loadTexturedMesh = config.loadTexturedMesh ?? this.loadTexturedMesh;
-      this.binaryMapPath = config.binaryMapPath ?? this.binaryMapPath;
-      this.sparseMapPath = config.sparseMapPath ?? this.sparseMapPath;
-      this.denseMapPath = config.denseMapPath ?? this.denseMapPath;
-      this.texturedMapPath = config.texturedMapPath ?? this.texturedMapPath;
-      this.pointCloudSize = config.pointCloudSize ?? this.pointCloudSize;
-      this.pointCloudColor = config.pointCloudColor ?? this.pointCloudColor;
-      this.position = config.position ?? this.position;
-      this.rotation = config.rotation ?? this.rotation;
-      if (this.position && this.rotation) {
-        this.matrix = babylonjs.Matrix.Compose(
-          new babylonjs.Vector3(1, 1, 1),
-          babylonjs.Quaternion.FromEulerAngles(this.rotation[0], this.rotation[1], this.rotation[2]),
-          new babylonjs.Vector3(this.position[0], this.position[1], this.position[2])
-        );
-      }
-    }
-  }
-  class AppImmersalConfig {
-    constructor(config) {
-      __publicField(this, "token", "");
-      __publicField(this, "localizeOnDevice", false);
-      __publicField(this, "usePoseProcessor", false);
-      // optional, used to process poses.
-      __publicField(this, "poseRotationConstraints");
-      __publicField(this, "maps", []);
-      this.token = config.token;
-      this.localizeOnDevice = config.localizeOnDevice ?? this.localizeOnDevice;
-      this.usePoseProcessor = config.usePoseProcessor ?? this.usePoseProcessor;
-      for (const mapConfig of config.maps ?? []) {
-        const map = new AppImmersalMapConfig(mapConfig);
-        const pathSuffix = "?token=" + this.token + "&id=" + map.mapId;
-        map.binaryMapPath = map.binaryMapPath ?? BASE_URL + DOWNLOAD_MAP + pathSuffix;
-        map.sparseMapPath = map.sparseMapPath ?? BASE_URL + DOWNLOAD_SPARSE + pathSuffix;
-        map.denseMapPath = map.denseMapPath ?? BASE_URL + DOWNLOAD_DENSE + pathSuffix;
-        map.texturedMapPath = map.texturedMapPath ?? BASE_URL + DOWNLOAD_TEXTURED + pathSuffix;
-        this.maps.push(map);
-      }
-    }
-  }
-  class AppImmersal extends AppContent {
+  class AppWebXRSimple extends AppContent {
     constructor(renderCanvas) {
       super(renderCanvas);
-      __publicField(this, "immersalImpl");
-      __publicField(this, "localizing", false);
-      __publicField(this, "immersalConfig");
-      __publicField(this, "pose", new Pose());
-      __publicField(this, "cameraMat");
-      __publicField(this, "bridge");
-      __publicField(this, "transformContent", (immersalMat, mapMat) => {
-        let mat = void 0;
-        if (mapMat) {
-          mat = mapMat.invert().multiply(immersalMat.invert()).multiply(this.cameraMat);
-        } else {
-          mat = immersalMat.invert().multiply(this.cameraMat);
-        }
-        this.pose.setMatrix(mat);
-      });
-    }
-    setConfigImmersal(immersalConfig) {
-      this.immersalConfig = immersalConfig;
-    }
-    initialize() {
-      super.initialize();
-      this.cameraMat = new babylonjs.Matrix();
-      if (!this.immersalConfig) {
-        console.error("app.immersal.initialize error: immersalConfig is undefined");
-        return;
-      }
-      const mapIds = this.immersalConfig.maps.map((mapConfig) => {
-        return mapConfig.mapId;
-      });
-      if (IS_BABYLON_NATIVE_JSCORE) {
-        if (this.immersalConfig.localizeOnDevice) {
-          this.immersalImpl = new ImmersalWebDevice(this.immersalConfig.token, mapIds);
-        } else {
-          this.immersalImpl = new ImmersalWebCloud(this.immersalConfig.token, mapIds);
-        }
-      } else if (IS_EYEJACK_APP) {
-        if (this.immersalConfig.localizeOnDevice) {
-          this.immersalImpl = new ImmersalAppDevice(this.immersalConfig.token, mapIds);
-        } else {
-          this.immersalImpl = new ImmersalAppCloud(this.immersalConfig.token, mapIds);
-        }
-      } else {
-        if (this.immersalConfig.localizeOnDevice) {
-          this.immersalImpl = new ImmersalWebDevice(this.immersalConfig.token, mapIds);
-        } else {
-          this.immersalImpl = new ImmersalWebCloud(this.immersalConfig.token, mapIds);
-        }
-      }
-      if (this.immersalConfig.usePoseProcessor) {
-        this.pose.enablePoseFilter();
-        this.pose.enablePoseSmooth();
-        if (this.immersalConfig.poseRotationConstraints) {
-          this.pose.setRotationConstraints(this.immersalConfig.poseRotationConstraints);
-        }
-      }
-    }
-    async loadAsync() {
-      const promises = [
-        this.loadImmersalBinaryMaps(),
-        this.loadImmersalSparseMaps(),
-        this.loadImmersalDenseMaps(),
-        this.loadImmersalTexturedMaps()
-      ];
-      await Promise.all(promises);
-    }
-    async loadImmersalBinaryMaps() {
-      await this.immersalImpl.init();
-      const maps = this.immersalConfig.maps.slice(0, 1);
-      for (const mapConfig of maps) {
-        await this.immersalImpl.loadMap(mapConfig.binaryMapPath);
-      }
-    }
-    async loadImmersalSparseMaps() {
-      var _a;
-      for (const mapConfig of ((_a = this.immersalConfig) == null ? void 0 : _a.maps) ?? []) {
-        if (!mapConfig.loadSparseMap || !mapConfig.sparseMapPath) {
-          continue;
-        }
-        const asset = {
-          id: ImmersalSparseMapId(mapConfig.mapId),
-          type: "pointcloud",
-          path: mapConfig.sparseMapPath,
-          size: mapConfig.pointCloudSize,
-          color: mapConfig.pointCloudColor
-        };
-        await this.loadAsset(asset);
-      }
-    }
-    async loadImmersalDenseMaps() {
-      var _a;
-      for (const mapConfig of ((_a = this.immersalConfig) == null ? void 0 : _a.maps) ?? []) {
-        if (!mapConfig.loadDenseMap || !mapConfig.denseMapPath) {
-          continue;
-        }
-        const asset = {
-          id: ImmersalDenseMapId(mapConfig.mapId),
-          type: "pointcloud",
-          path: mapConfig.denseMapPath,
-          size: mapConfig.pointCloudSize,
-          color: mapConfig.pointCloudColor
-        };
-        await this.loadAsset(asset);
-      }
-    }
-    async loadImmersalTexturedMaps() {
-      var _a;
-      for (const mapConfig of ((_a = this.immersalConfig) == null ? void 0 : _a.maps) ?? []) {
-        if (!mapConfig.loadTexturedMesh || !mapConfig.texturedMapPath) {
-          continue;
-        }
-        const asset = {
-          id: ImmersalTexturedMapId(mapConfig.mapId),
-          type: "model",
-          path: mapConfig.texturedMapPath,
-          extension: ".glb"
-          // Immersal tex endpoint has no file extension; force Babylon glTF loader.
-        };
-        await this.loadAsset(asset);
-      }
-    }
-    loadAssetComplete(asset) {
-      var _a;
-      if (!asset.id) {
-        return;
-      }
-      const isImmersalSparseMap = asset.id.startsWith(ImmersalSparseMapIdPrefix);
-      const isImmersalDenseMap = asset.id.startsWith(ImmersalDenseMapIdPrefix);
-      const isImmersalTexturedMap = asset.id.startsWith(ImmersalTexturedMapIdPrefix);
-      const isImmersalAsset = isImmersalSparseMap || isImmersalDenseMap || isImmersalTexturedMap;
-      let mapMat = void 0;
-      if (isImmersalAsset) {
-        const mapIdStr = asset.id.split("-")[1];
-        const mapId = mapIdStr ? parseInt(mapIdStr) : -1;
-        const mapConfig = (_a = this.immersalConfig) == null ? void 0 : _a.maps.find((mapConfig2) => mapConfig2.mapId === mapId);
-        if (mapConfig && mapConfig.matrix) {
-          mapMat = mapConfig.matrix;
-        }
-      }
-      if (isImmersalSparseMap || isImmersalDenseMap) {
-        const assetPointCloud = asset;
-        if (assetPointCloud.mesh && mapMat) {
-          this.transformImmersalMesh(assetPointCloud.mesh, mapMat);
-        }
-      } else if (isImmersalTexturedMap) {
-        const assetModel = asset;
-        if (assetModel.meshRoot && mapMat) {
-          this.transformImmersalMesh(assetModel.meshRoot, mapMat);
-        }
-        for (const abstractMesh of assetModel.meshes ?? []) {
-          const mesh = abstractMesh;
-          if (mesh.material && mesh.material instanceof babylonjs.PBRMaterial) {
-            const pbrMaterial = mesh.material;
-            pbrMaterial.unlit = true;
-          }
-        }
-      }
-    }
-    transformImmersalMesh(mesh, matrix) {
-      if (!mesh.rotationQuaternion) {
-        mesh.rotationQuaternion = new babylonjs.Quaternion();
-      }
-      matrix.decompose(mesh.scaling, mesh.rotationQuaternion, mesh.position);
-    }
-    render() {
-      super.render();
-      this.pose.update(this.timeDelta);
-      const mat = this.pose.getMatrix();
-      mat.decomposeToTransformNode(this.rootNode);
-    }
-    async localize(imageData, imageWidth, imageHeight, intrinsics) {
-      return new Promise((resolve, reject) => {
-        if (this.localizing) {
-          reject(new Error("AppImmersal.localize: already localizing."));
-          return;
-        }
-        this.localizing = true;
-        this.immersalImpl.localize(imageData, imageWidth, imageHeight, intrinsics).then((res) => {
-          this.localizing = false;
-          if (res.success) {
-            const immersalMat = babylonjs.Matrix.FromArray(res.matrix);
-            let mapMat = void 0;
-            const mapConfig = this.immersalConfig.maps.find((mapConfig2) => mapConfig2.mapId === res.map);
-            if (mapConfig && mapConfig.matrix) {
-              mapMat = mapConfig.matrix.clone();
-            }
-            this.transformContent(immersalMat, mapMat);
-          }
-          resolve(res);
-        }).catch((err2) => {
-          this.localizing = false;
-          reject(err2);
-        });
-      });
-    }
-  }
-  const ua = typeof window !== "undefined" ? window.navigator.userAgent : "";
-  function isWebXRCameraAccessBroken() {
-    if (!ua.includes("Android") || !ua.includes("Chrome/")) return false;
-    const match = ua.match(/Chrome\/(\d+)/);
-    if (!match) return false;
-    const major = parseInt(match[1], 10);
-    return major >= 147 && major <= 148;
-  }
-  let _applied = false;
-  function applyWebXRCameraAccessFix() {
-    var _a;
-    if (_applied) return;
-    _applied = true;
-    if (!isWebXRCameraAccessBroken()) return;
-    console.warn(
-      "[WebXR] Applying Chrome 147-148 camera-access crash workaround (crbug.com/507508099). Fixed in Chrome 149+."
-    );
-    const xrWebGLBindingCtor = globalThis.XRWebGLBinding;
-    const xrRenderStateCtor = globalThis.XRRenderState;
-    const xrSessionCtor = globalThis.XRSession;
-    if (xrWebGLBindingCtor == null ? void 0 : xrWebGLBindingCtor.prototype) {
-      try {
-        delete xrWebGLBindingCtor.prototype.createProjectionLayer;
-      } catch (_e) {
-      }
-    }
-    if (xrRenderStateCtor == null ? void 0 : xrRenderStateCtor.prototype) {
-      try {
-        delete xrRenderStateCtor.prototype.layers;
-      } catch (_e) {
-      }
-    }
-    if ((_a = xrSessionCtor == null ? void 0 : xrSessionCtor.prototype) == null ? void 0 : _a.updateRenderState) {
-      const originalUpdateRenderState = xrSessionCtor.prototype.updateRenderState;
-      let lastBaseLayer;
-      xrSessionCtor.prototype.updateRenderState = function(state) {
-        const next = { ...state ?? {} };
-        if (next.baseLayer !== void 0) {
-          lastBaseLayer = next.baseLayer ?? void 0;
-        } else if (lastBaseLayer) {
-          next.baseLayer = lastBaseLayer;
-        }
-        return originalUpdateRenderState.call(this, next);
-      };
-    }
-  }
-  class XRModuleBase {
-    constructor(xr) {
-      __publicField(this, "xr");
-      this.xr = xr;
-    }
-  }
-  class XRModuleSessionOptions {
-    constructor() {
-      __publicField(this, "domOverlayElement");
-      __publicField(this, "domOverlayElementName");
-      __publicField(this, "disableDefaultUI", false);
-      __publicField(this, "enableHitTest", true);
-      __publicField(this, "enableCameraAccess", true);
-      __publicField(this, "arkitFeatures", []);
-      __publicField(this, "onEnteringXR");
-      __publicField(this, "onExitingXR");
-      __publicField(this, "onInXR");
-      __publicField(this, "onNotInXR");
-      __publicField(this, "onError");
-    }
-    get enableDomOverlay() {
-      const enableDomOverlay = this.domOverlayElement !== void 0 || this.domOverlayElementName !== void 0;
-      return enableDomOverlay;
-    }
-    get requiredFeatures() {
-      const requiredFeatures = [];
-      if (this.enableDomOverlay) requiredFeatures.push("dom-overlay");
-      return requiredFeatures;
-    }
-    get optionalFeatures() {
-      const optionalFeatures = [
-        ...this.enableHitTest ? ["hit-test"] : [],
-        ...this.enableCameraAccess ? ["camera-access"] : [],
-        ...this.arkitFeatures
-      ];
-      return optionalFeatures;
-    }
-  }
-  class XRModuleSession extends XRModuleBase {
-    constructor() {
-      super();
-      __publicField(this, "options");
-      this.options = new XRModuleSessionOptions();
-    }
-    dispose() {
-      this.clearXRStateChangedObservable();
-    }
-    async init(scene, options) {
-      if (this.xr) {
-        return this.xr;
-      }
-      if (options) {
-        this.options = options;
-      }
-      applyWebXRCameraAccessFix();
-      if (this.options.disableDefaultUI) {
-        await this.initWithCustomUI(scene);
-      } else {
-        await this.initWithDefaultUI(scene);
-      }
-      this.addXRStateChangedObservable();
-      return this.xr;
-    }
-    async initWithDefaultUI(scene) {
-      try {
-        const requiredFeatures = this.options.requiredFeatures;
-        const optionalFeatures = this.options.optionalFeatures;
-        this.xr = await scene.createDefaultXRExperienceAsync({
-          uiOptions: {
-            sessionMode: "immersive-ar",
-            referenceSpaceType: "local",
-            onError: this.options.onError,
-            requiredFeatures,
-            optionalFeatures
-          }
-        });
-        if (this.options.enableDomOverlay) {
-          if (this.xr.baseExperience) {
-            const { featuresManager } = this.xr.baseExperience;
-            featuresManager.enableFeature(babylonjs.WebXRDomOverlay, "latest", {
-              element: this.options.domOverlayElementName
-            });
-          }
-        }
-      } catch (error) {
-        console.error(error);
-      }
-    }
-    async initWithCustomUI(scene) {
-      this.xr = await scene.createDefaultXRExperienceAsync({
-        disableDefaultUI: this.options.disableDefaultUI
-      });
-      const isSupported = await this.xr.baseExperience.sessionManager.isSessionSupportedAsync("immersive-ar");
-      if (!isSupported) {
-        const error = new Error("app.immersal.webxr.startXR: immersive-ar is not supported.");
-        error.name = ErrorWebXR.NOT_SUPPPORTED;
-        throw error;
-      }
-    }
-    async startXR() {
-      if (!this.xr) {
-        return;
-      }
-      const sessionMode = "immersive-ar";
-      const referenceSpaceLocal = IS_BABYLON_NATIVE_JSCORE ? "unbounded" : "local";
-      const renderTarget = this.xr.renderTarget;
-      let domOverlay = void 0;
-      if (this.options.domOverlayElement) {
-        domOverlay = { root: this.options.domOverlayElement };
-      }
-      const sessionCreationOptions = {
-        requiredFeatures: this.options.requiredFeatures,
-        optionalFeatures: this.options.optionalFeatures,
-        domOverlay
-      };
-      try {
-        await this.xr.baseExperience.enterXRAsync(sessionMode, referenceSpaceLocal, renderTarget, sessionCreationOptions);
-      } catch (e) {
-        let permissionDenied = false;
-        if (e instanceof DOMException) {
-          const domE = e;
-          permissionDenied = domE.name === "NotSupportedError";
-        }
-        if (permissionDenied) {
-          const error = new Error("app.immersal.webxr.startXR: permission denied.");
-          error.name = ErrorWebXR.PERMISSION_DENIED;
-          throw error;
-        } else {
-          const error = new Error("app.immersal.webxr.startXR: undefined.");
-          error.name = ErrorWebXR.UNDEFINED;
-          throw error;
-        }
-      }
-    }
-    async stopXR() {
-      if (!this.xr) {
-        return;
-      }
-      await this.xr.baseExperience.exitXRAsync();
-    }
-    get isXRRunning() {
-      var _a, _b, _c;
-      const xrRunning = !!((_c = (_b = (_a = this.xr) == null ? void 0 : _a.baseExperience) == null ? void 0 : _b.sessionManager) == null ? void 0 : _c.inXRSession);
-      return xrRunning;
-    }
-    addXRStateChangedObservable() {
-      if (!this.xr) {
-        return;
-      }
-      this.xr.baseExperience.onStateChangedObservable.add((state) => {
-        if (state === babylonjs.WebXRState.ENTERING_XR) {
-          if (this.options.onEnteringXR) {
-            this.options.onEnteringXR();
-          }
-        } else if (state === babylonjs.WebXRState.EXITING_XR) {
-          if (this.options.onExitingXR) {
-            this.options.onExitingXR();
-          }
-        } else if (state === babylonjs.WebXRState.IN_XR) {
-          if (this.options.onInXR) {
-            this.options.onInXR();
-          }
-        } else if (state === babylonjs.WebXRState.NOT_IN_XR) {
-          if (this.options.onNotInXR) {
-            this.options.onNotInXR();
-          }
-        }
-      });
-    }
-    clearXRStateChangedObservable() {
-      if (!this.xr) {
-        return;
-      }
-      this.xr.baseExperience.onStateChangedObservable.clear();
-    }
-  }
-  class XRModuleHitTest extends XRModuleBase {
-    constructor(xr) {
-      super(xr);
-      __publicField(this, "hitTests", []);
-    }
-    // rayOrigin uses (NDC) Normalized Device Coordinates
-    // rayOrigin coordinate range is x:[-1,1], y:[-1,1], z:[0]
-    // rayOrigin is at center of screen by default
-    // rayDirection points forward in view space
-    async initHitTest(rayOrigin = { x: 0, y: 0, z: 0 }, rayDirection = { x: 0, y: 0, z: -1 }) {
-      try {
-        if (!this.xr) {
-          throw new Error("app.webxr.hitTestUpdate: no xr.");
-        }
-        const xrSessionManager = this.xr.baseExperience.sessionManager;
-        if (!xrSessionManager.inXRSession) {
-          throw new Error("app.webxr.hitTestUpdate: not in XR session.");
-        }
-        const session = xrSessionManager.session;
-        if (!session) {
-          throw new Error("app.webxr.hitTestUpdate: no session.");
-        }
-        const hitTestSupported = session.enabledFeatures ? session.enabledFeatures.includes("hit-test") : true;
-        if (!hitTestSupported) {
-          throw new Error("app.webxr.hitTestUpdate: hit test not supported.");
-        }
-        if (!session.requestHitTestSource) {
-          throw new Error("app.webxr.hitTestUpdate: no requestHitTestSource.");
-        }
-        const referenceSpaceViewer = await session.requestReferenceSpace("viewer");
-        const hitTestSourceOptions = {
-          space: referenceSpaceViewer,
-          offsetRay: new XRRay(rayOrigin, rayDirection)
-        };
-        const source = await session.requestHitTestSource(hitTestSourceOptions);
-        const hitTest = {
-          uuid: Utils.UUID(),
-          source,
-          matrix: new babylonjs.Matrix(),
-          position: new babylonjs.Vector3(0, 0, 0),
-          rotation: new babylonjs.Quaternion(0, 0, 0, 1),
-          scale: new babylonjs.Vector3(1, 1, 1),
-          timestamp: 0
-        };
-        this.hitTests.push(hitTest);
-        return hitTest.uuid;
-      } catch (error) {
-        console.error(error);
-      }
-    }
-    getHitTest(uuid) {
-      const hitTest = this.hitTests.find((hitTest2) => hitTest2.uuid === uuid);
-      if (hitTest === void 0) return;
-      return hitTest;
-    }
-    killHitTest(uuid) {
-      const hitTestIndex = this.hitTests.findIndex((hitTest2) => hitTest2.uuid === uuid);
-      if (hitTestIndex === -1) {
-        return;
-      }
-      const hitTest = this.hitTests[hitTestIndex];
-      hitTest.source.cancel();
-      this.hitTests.splice(hitTestIndex, 1);
-    }
-    killAllHitTests() {
-      for (const hitTest of this.hitTests) {
-        hitTest.source.cancel();
-      }
-      this.hitTests = [];
-    }
-    updateHitTests() {
-      if (this.hitTests.length === 0) {
-        return;
-      }
-      try {
-        if (!this.xr) {
-          throw new Error("app.webxr.hitTestUpdate: no xr.");
-        }
-        const xrSessionManager = this.xr.baseExperience.sessionManager;
-        if (!xrSessionManager.inXRSession) {
-          throw new Error("app.webxr.hitTestUpdate: not in XR session.");
-        }
-        const session = xrSessionManager.session;
-        if (!session) {
-          throw new Error("app.webxr.hitTestUpdate: no session.");
-        }
-        const frame = xrSessionManager.currentFrame;
-        if (!frame) {
-          throw new Error("app.webxr.hitTestUpdate: no frame.");
-        }
-        for (const hitTest of this.hitTests) {
-          const hitTestResults = frame.getHitTestResults(hitTest.source);
-          for (const hitTestResult of hitTestResults) {
-            const pose = hitTestResult.getPose(xrSessionManager.referenceSpace);
-            if (!pose) {
-              continue;
-            }
-            const hitMatrix = pose.transform.matrix;
-            hitTest.matrix.fromArray(hitMatrix);
-            hitTest.matrix.decompose(hitTest.scale, hitTest.rotation, hitTest.position);
-            hitTest.timestamp = performance.now();
-          }
-        }
-      } catch (error) {
-        console.error(error);
-      }
-    }
-  }
-  class XRModuleFloorEstimateOptions {
-    constructor() {
-      __publicField(this, "initialFloorEstimate", 0);
-      __publicField(this, "floorEstimateSmoothingRate", 0.2);
-    }
-  }
-  class XRModuleFloorEstimate extends XRModuleHitTest {
-    constructor(xr, scene) {
-      super(xr);
-      __publicField(this, "options");
-      __publicField(this, "hitTestUUID");
-      __publicField(this, "floorEstimate", 0);
-      __publicField(this, "floorEstimateSmoothed", 0);
-      __publicField(this, "buffer", []);
-      __publicField(this, "bufferSize", 10);
-      __publicField(this, "sampleTime", 0);
-      __publicField(this, "sampleRateMs", 1e3);
-      __publicField(this, "scene");
-      this.scene = scene;
-      this.options = new XRModuleFloorEstimateOptions();
-      this.floorEstimate = this.options.initialFloorEstimate;
-      this.floorEstimateSmoothed = this.options.initialFloorEstimate;
-    }
-    async initFloorEstimate(options) {
-      if (options) {
-        this.options = options;
-        this.floorEstimate = this.options.initialFloorEstimate;
-        this.floorEstimateSmoothed = this.options.initialFloorEstimate;
-      }
-      const rayOrigin = { x: 0, y: 0, z: 0 };
-      const rayDirection = {
-        x: 0,
-        // No horizontal offset
-        y: -0.5,
-        // Slightly downward
-        z: -1
-        // Forward direction in viewer space
-      };
-      const magnitude = Math.sqrt(rayDirection.x ** 2 + rayDirection.y ** 2 + rayDirection.z ** 2);
-      rayDirection.x /= magnitude;
-      rayDirection.y /= magnitude;
-      rayDirection.z /= magnitude;
-      this.hitTestUUID = await this.initHitTest(rayOrigin, rayDirection);
-    }
-    updateFloorEstimate() {
-      var _a;
-      this.updateHitTests();
-      const hitTest = this.getHitTest();
-      if (this.scene.activeCamera === void 0) {
-        return;
-      }
-      const cameraY = ((_a = this.scene.activeCamera) == null ? void 0 : _a.position.y) ?? 0;
-      if (hitTest && hitTest.position.y < cameraY) {
-        const isNewSample = hitTest.timestamp - this.sampleTime > this.sampleRateMs;
-        if (isNewSample) {
-          this.sampleTime = hitTest.timestamp;
-          this.floorEstimate = this.weightedMovingAverage(hitTest.position.y);
-        }
-      }
-      this.floorEstimateSmoothed += (this.floorEstimate - this.floorEstimateSmoothed) * this.options.floorEstimateSmoothingRate;
-    }
-    /**
-     * Updates the floor estimate using a weighted moving average
-     * where weights are based on the difference from the average.
-     */
-    weightedMovingAverage(value) {
-      this.buffer.push(value);
-      if (this.buffer.length > this.bufferSize) {
-        this.buffer.shift();
-      }
-      let sum = 0;
-      for (const value2 of this.buffer) {
-        sum += value2;
-      }
-      const average = sum / this.buffer.length;
-      const weights = [];
-      let weightSum = 0;
-      for (const value2 of this.buffer) {
-        const difference = Math.abs(value2 - average);
-        const weight = 1 / (1 + difference);
-        weights.push(weight);
-        weightSum += weight;
-      }
-      let weightedSum = 0;
-      for (let i = 0; i < this.buffer.length; i++) {
-        weightedSum += this.buffer[i] * weights[i];
-      }
-      const result = weightedSum / weightSum;
-      return result;
-    }
-    getHitTest() {
-      if (this.hitTestUUID === void 0) return;
-      return super.getHitTest(this.hitTestUUID);
-    }
-    getHitTestMatrix() {
-      const hitTest = this.getHitTest();
-      const matrix = hitTest == null ? void 0 : hitTest.matrix.clone();
-      return matrix;
-    }
-    getHitTestPosition() {
-      const hitTest = this.getHitTest();
-      const position = hitTest == null ? void 0 : hitTest.position.clone();
-      return position;
-    }
-    getHitTestRotation() {
-      const hitTest = this.getHitTest();
-      const rotation = hitTest == null ? void 0 : hitTest.rotation.clone();
-      return rotation;
-    }
-    getHitTestScale() {
-      const hitTest = this.getHitTest();
-      const scale = hitTest == null ? void 0 : hitTest.scale.clone();
-      return scale;
-    }
-    getFloorEstimate() {
-      return this.floorEstimate;
-    }
-    getFloorEstimateSmoothed() {
-      return this.floorEstimateSmoothed;
-    }
-  }
-  class AppImmersalWebXRConfig {
-    // assuming camera initialises at 1.0 meters above the floor.
-    constructor(config) {
-      __publicField(this, "useFloorEstimate", false);
-      __publicField(this, "initialFloorEstimate", -1);
-      this.useFloorEstimate = config.useFloorEstimate;
-      this.initialFloorEstimate = config.initialFloorEstimate ?? this.initialFloorEstimate;
-    }
-  }
-  const _AppImmersalWebXR = class _AppImmersalWebXR extends AppImmersal {
-    constructor(renderCanvas) {
-      super(renderCanvas);
-      __publicField(this, "immersalWebXRConfig");
       __publicField(this, "xr");
       __publicField(this, "xrSession");
-      __publicField(this, "xrFloorEstimate");
-      __publicField(this, "downsamplerRatio", _AppImmersalWebXR.DEFAULT_DOWNSAMPLER_RATIO);
-      __publicField(this, "downsampler");
-      __publicField(this, "rawCameraTexture", null);
-      __publicField(this, "pixelDataRgba", new Uint8ClampedArray());
-      __publicField(this, "pixelDataGrayscale", new Uint8ClampedArray());
-    }
-    setConfigImmersalWebXR(config) {
-      this.immersalWebXRConfig = config;
+      __publicField(this, "contentPosition", new babylonjs.Vector3(0, 0, -1.5));
     }
     initialize() {
       super.initialize();
+      this.initCustom();
+      this.initXR();
     }
-    async startXR() {
-      var _a;
-      if (!this.xrSession) {
-        this.xrSession = new XRModuleSession();
-        const xrSessionOptions = this.initXROptions();
-        this.xr = await this.xrSession.init(this.scene, xrSessionOptions);
-      }
-      await this.xrSession.startXR();
-      (_a = this.mediaRecorder) == null ? void 0 : _a.initWeb(this.scene, this.xr);
+    initEngine() {
+      super.initEngine();
+    }
+    initScene() {
+      super.initScene();
+      this.scene.autoClear = true;
+    }
+    initCamera() {
+      const camera = new babylonjs.FreeCamera("camera", new babylonjs.Vector3(0, 0, 0), this.scene);
+      camera.setTarget(this.contentPosition);
+      camera.attachControl(this.renderCanvas, true);
+      this.camera = camera;
+    }
+    initCustom() {
+      const light = new babylonjs.HemisphericLight("light", new babylonjs.Vector3(0, 1, 0), this.scene);
+      light.intensity = 0.7;
+      const sphere = babylonjs.MeshBuilder.CreateSphere("sphere", { diameter: 0.2, segments: 32 }, this.scene);
+      sphere.position.copyFrom(this.contentPosition);
     }
     initXROptions() {
-      const xrSessionOptions = new XRModuleSessionOptions();
-      xrSessionOptions.disableDefaultUI = true;
-      if (!IS_BABYLON_NATIVE_JSCORE) {
-        xrSessionOptions.domOverlayElement = document.getElementById("domOverlay");
-      }
-      xrSessionOptions.onExitingXR = this.exitXREvent.bind(this);
-      return xrSessionOptions;
+      const options = new XRModuleSessionOptions();
+      options.disableDefaultUI = false;
+      options.domOverlayElementName = "#domOverlay";
+      return options;
     }
-    async stopXR() {
-      if (!this.xrSession) {
-        return;
+    async initXR() {
+      var _a;
+      try {
+        const options = this.initXROptions();
+        this.xrSession = new XRModuleSession();
+        this.xr = await this.xrSession.init(this.scene, options);
+        if (!this.xr) {
+          throw new Error("app.webxr.simple.initXR: failed");
+        }
+        (_a = this.mediaRecorder) == null ? void 0 : _a.initWeb(this.scene, this.xr);
+      } catch (error) {
+        console.error(error);
       }
-      await this.xrSession.stopXR();
+    }
+    isXRRunning() {
+      var _a;
+      return !!((_a = this.xrSession) == null ? void 0 : _a.isXRRunning);
     }
     render() {
-      var _a;
-      const xrRunning = this.xrSession && this.xrSession.isXRRunning;
-      const useFloorEstimate = (_a = this.immersalWebXRConfig) == null ? void 0 : _a.useFloorEstimate;
-      if (xrRunning && useFloorEstimate) {
-        if (!this.xrFloorEstimate) {
-          const options = new XRModuleFloorEstimateOptions();
-          options.initialFloorEstimate = this.immersalWebXRConfig.initialFloorEstimate;
-          this.xrFloorEstimate = new XRModuleFloorEstimate(this.xr, this.scene);
-          this.xrFloorEstimate.initFloorEstimate(options);
-        }
-        this.xrFloorEstimate.updateFloorEstimate();
-        const floorEstimate = this.xrFloorEstimate.getFloorEstimateSmoothed();
-        this.pose.setPositionConstraints({ positionY: floorEstimate });
-      }
-      super.render();
     }
-    async localizeAsync() {
-      return new Promise((resolve, reject) => {
-        if (this.localizing) {
-          reject(new Error("app.immersal.webxr.localize: already localizing."));
+  }
+  class ContentBase {
+    constructor() {
+      __publicField(this, "engine");
+      __publicField(this, "scene");
+      __publicField(this, "camera");
+      __publicField(this, "rootNode");
+    }
+    init(engine, scene, camera, rootNode) {
+      this.engine = engine;
+      this.scene = scene;
+      this.camera = camera;
+      this.rootNode = rootNode;
+    }
+    get assets() {
+      return [];
+    }
+    loadAssetComplete(_asset) {
+    }
+    render(_timeDelta = 0) {
+    }
+    resize() {
+    }
+    dispose() {
+    }
+  }
+  const DEFAULT_GRID_SIZE = 20;
+  const VERTEX = "ejGridVertex";
+  const FRAGMENT = "ejGridFragment";
+  babylonjs.Effect.ShadersStore[`${VERTEX}VertexShader`] = `
+precision highp float;
+attribute vec3 position;
+uniform mat4 worldViewProjection;
+uniform mat4 world;
+varying vec2 vWorldXZ;
+void main(void) {
+  vec4 wp = world * vec4(position, 1.0);
+  vWorldXZ = wp.xz;
+  gl_Position = worldViewProjection * vec4(position, 1.0);
+}
+`;
+  babylonjs.Effect.ShadersStore[`${FRAGMENT}FragmentShader`] = `
+#extension GL_OES_standard_derivatives : enable
+precision highp float;
+varying vec2 vWorldXZ;
+uniform vec3 uLineColor;
+uniform vec3 uFillColor;      // dark translucent floor fill
+uniform float uMinorScale;   // minor cell size (world units)
+uniform float uMajorScale;   // major cell size (world units)
+uniform float uMinorOpacity; // faint
+uniform float uMajorOpacity; // brighter
+uniform float uFillOpacity;  // floor fill alpha (0 = lines only)
+
+// Anti-aliased line coverage: distance (in pixels) to the nearest grid line of
+// the given cell size, normalised by the fragment's derivative → ~1 on the line,
+// 0 between, with a smooth 1px edge.
+float gridFactor(vec2 p, float scale) {
+  vec2 coord = p / scale;
+  vec2 d = fwidth(coord);
+  vec2 g = abs(fract(coord - 0.5) - 0.5) / max(d, vec2(1e-6));
+  float line = min(g.x, g.y);
+  return 1.0 - clamp(line, 0.0, 1.0);
+}
+
+void main(void) {
+  float minor = gridFactor(vWorldXZ, uMinorScale) * uMinorOpacity;
+  float major = gridFactor(vWorldXZ, uMajorScale) * uMajorOpacity;
+  float lineA = clamp(max(minor, major), 0.0, 1.0);
+  float a = max(lineA, uFillOpacity);
+  if (a < 0.002) discard;
+  vec3 color = mix(uFillColor, uLineColor, lineA);
+  gl_FragColor = vec4(color, a);
+}
+`;
+  class CreatorGrid {
+    constructor(scene, size = DEFAULT_GRID_SIZE) {
+      __publicField(this, "mesh");
+      this.mesh = babylonjs.MeshBuilder.CreateGround("Floor_Grid", { width: size, height: size }, scene);
+      this.mesh.isPickable = false;
+      const material = new babylonjs.ShaderMaterial(
+        "grid_mat",
+        scene,
+        { vertex: VERTEX, fragment: FRAGMENT },
+        {
+          attributes: ["position"],
+          uniforms: ["worldViewProjection", "world", "uLineColor", "uFillColor", "uMinorScale", "uMajorScale", "uMinorOpacity", "uMajorOpacity", "uFillOpacity"],
+          needAlphaBlending: true
+        }
+      );
+      material.setColor3("uLineColor", new babylonjs.Color3(0.6, 0.61, 0.63));
+      material.setColor3("uFillColor", new babylonjs.Color3(0.03, 0.035, 0.04));
+      material.setFloat("uMinorScale", 1);
+      material.setFloat("uMajorScale", 5);
+      material.setFloat("uMinorOpacity", 0.28);
+      material.setFloat("uMajorOpacity", 0.85);
+      material.setFloat("uFillOpacity", 0.35);
+      material.backFaceCulling = false;
+      material.forceDepthWrite = false;
+      this.mesh.material = material;
+    }
+    setEnabled(on) {
+      this.mesh.setEnabled(on);
+    }
+    dispose() {
+      var _a;
+      (_a = this.mesh.material) == null ? void 0 : _a.dispose();
+      this.mesh.dispose();
+    }
+  }
+  const DEG2RAD = Math.PI / 180;
+  const RAD2DEG = 180 / Math.PI;
+  function convertPosition(p) {
+    return new babylonjs.Vector3(p[0], p[1], -p[2]);
+  }
+  function convertScale(s) {
+    return new babylonjs.Vector3(s[0], s[1], s[2]);
+  }
+  function rotationToQuaternion(r, panelFlip) {
+    return eulerXYZToQuaternion(
+      -r[0] * DEG2RAD,
+      -r[1] * DEG2RAD + (panelFlip ? Math.PI : 0),
+      -r[2] * DEG2RAD
+    );
+  }
+  function quaternionToRotation(q, panelFlip) {
+    const e = quaternionToEulerXYZ(q);
+    const flip = panelFlip ? Math.PI : 0;
+    return [-e.x * RAD2DEG, (flip - e.y) * RAD2DEG, -e.z * RAD2DEG];
+  }
+  function eulerXYZToQuaternion(rx, ry, rz) {
+    const c1 = Math.cos(rx / 2), s1 = Math.sin(rx / 2);
+    const c2 = Math.cos(ry / 2), s2 = Math.sin(ry / 2);
+    const c3 = Math.cos(rz / 2), s3 = Math.sin(rz / 2);
+    return new babylonjs.Quaternion(
+      s1 * c2 * c3 + c1 * s2 * s3,
+      c1 * s2 * c3 - s1 * c2 * s3,
+      c1 * c2 * s3 + s1 * s2 * c3,
+      c1 * c2 * c3 - s1 * s2 * s3
+    );
+  }
+  function quaternionToEulerXYZ(q) {
+    const { x, y, z, w } = q;
+    const m11 = 1 - 2 * (y * y + z * z);
+    const m12 = 2 * (x * y - z * w);
+    const m13 = 2 * (x * z + y * w);
+    const m22 = 1 - 2 * (x * x + z * z);
+    const m23 = 2 * (y * z - x * w);
+    const m32 = 2 * (y * z + x * w);
+    const m33 = 1 - 2 * (x * x + y * y);
+    let ex, ez;
+    const ey = Math.asin(Math.max(-1, Math.min(1, m13)));
+    if (Math.abs(m13) < 0.9999999) {
+      ex = Math.atan2(-m23, m33);
+      ez = Math.atan2(-m12, m11);
+    } else {
+      ex = Math.atan2(m32, m22);
+      ez = 0;
+    }
+    return new babylonjs.Vector3(ex, ey, ez);
+  }
+  class CreatorElement {
+    constructor(scene, parent, child, file) {
+      __publicField(this, "sceneID");
+      __publicField(this, "assetId");
+      __publicField(this, "anchor");
+      __publicField(this, "scene");
+      __publicField(this, "child");
+      __publicField(this, "file");
+      this.scene = scene;
+      this.child = child;
+      this.file = file;
+      this.sceneID = child.sceneID;
+      this.assetId = child.assetID;
+      this.anchor = new babylonjs.TransformNode(`creator_${child.sceneID}`, scene);
+      this.anchor.parent = parent;
+    }
+    // flat panels (image/video) get a 180deg Y flip; models do not.
+    get panelFlip() {
+      return true;
+    }
+    // apply this element's data transform to the anchor.
+    applyTransform() {
+      this.anchor.position.copyFrom(convertPosition(this.child.position));
+      this.anchor.rotationQuaternion = rotationToQuaternion(this.child.rotation, this.panelFlip);
+      this.anchor.scaling.copyFrom(convertScale(this.child.scale));
+    }
+    // read the anchor's current transform back to data (Unity) space — for the
+    // editor's gizmo read-back / getSceneConfig.
+    readTransform() {
+      const p = this.anchor.position;
+      const q = this.anchor.rotationQuaternion ?? babylonjs.Quaternion.FromEulerVector(this.anchor.rotation);
+      const s = this.anchor.scaling;
+      return {
+        position: [p.x, p.y, -p.z],
+        rotation: quaternionToRotation(q, this.panelFlip),
+        scale: [s.x, s.y, s.z]
+      };
+    }
+    // set the transform from data (Unity) space — for programmatic re-sync. The
+    // gizmo manipulates the anchor directly; this is the data path. (The editor
+    // subclass overrides the transform handling to work in its internal space.)
+    setDataTransform(position, rotation, scale) {
+      this.child = { ...this.child, position, rotation, scale };
+      this.applyTransform();
+    }
+    // stamp the element id on the anchor + every built mesh so a pick anywhere on
+    // the element resolves it (used by the editor's picker). Call after build().
+    stampMetadata() {
+      const metadata = { elementId: this.sceneID };
+      this.anchor.metadata = metadata;
+      for (const mesh of this.anchor.getChildMeshes(false)) mesh.metadata = metadata;
+    }
+    // the element's visual meshes (under the anchor) — for consumers that reveal /
+    // measure the content (e.g. an AR app's fade-in + placement bounds).
+    getMeshes() {
+      return this.anchor.getChildMeshes(false);
+    }
+    // show/hide the whole element (subclasses extend, e.g. video pauses when hidden).
+    setEnabled(visible) {
+      this.anchor.setEnabled(visible);
+    }
+    dispose() {
+      this.anchor.dispose(false, true);
+    }
+  }
+  class CreatorImageElement extends CreatorElement {
+    async build() {
+      const asset = { path: this.file.path, id: this.sceneID };
+      await loadTexture(asset, this.scene);
+      const tex = asset.texture;
+      if (!tex) return;
+      tex.hasAlpha = true;
+      tex.vScale = -1;
+      tex.uScale = -1;
+      const plane = babylonjs.MeshBuilder.CreatePlane(`${this.sceneID}_image`, { size: 1 }, this.scene);
+      plane.parent = this.anchor;
+      const material = new babylonjs.StandardMaterial(`${this.sceneID}_mat`, this.scene);
+      material.diffuseTexture = tex;
+      material.emissiveTexture = tex;
+      material.emissiveColor = new babylonjs.Color3(1, 1, 1);
+      material.disableLighting = true;
+      material.backFaceCulling = false;
+      material.useAlphaFromDiffuseTexture = true;
+      material.alphaMode = babylonjs.Engine.ALPHA_COMBINE;
+      plane.material = material;
+      this.applyTransform();
+    }
+  }
+  function initAlphaVideoShaderMaterial(scene, videoTexture, uvRange, uvColor, uvAlpha) {
+    const shaderName = "alphaVideo";
+    const shaderNameVert = `${shaderName}VertexShader`;
+    const shaderNameFrag = `${shaderName}FragmentShader`;
+    if (!babylonjs.Effect.ShadersStore[shaderNameVert]) {
+      babylonjs.Effect.ShadersStore[shaderNameVert] = `
+      precision highp float;
+      attribute vec3 position;
+      attribute vec2 uv;
+      uniform mat4 worldViewProjection;
+      varying vec2 vUV;
+
+      void main(void) {
+          gl_Position = worldViewProjection * vec4(position, 1.0);
+          vUV = uv;
+      }
+    `;
+    }
+    if (!babylonjs.Effect.ShadersStore[shaderNameFrag]) {
+      babylonjs.Effect.ShadersStore[shaderNameFrag] = `
+      precision highp float;
+      varying vec2 vUV;
+      uniform sampler2D videoTexture;
+      uniform vec4 uvRange;
+      uniform vec4 uvColor;
+      uniform vec4 uvAlpha;
+      uniform float alpha;
+      uniform float alphaDiscardThreshold;
+
+      float remap(float value, float inMin, float inMax, float outMin, float outMax) {
+          float normalized = (value - inMin) / (inMax - inMin);
+          return outMin + normalized * (outMax - outMin);
+      }
+
+      void main(void) {
+        vec2 uvColor2;
+        uvColor2.x = remap(vUV.x, uvRange.x, uvRange.z, uvColor.x, uvColor.z);
+        uvColor2.y = remap(vUV.y, uvRange.y, uvRange.w, uvColor.y, uvColor.w);
+      
+        vec2 uvAlpha2;
+        uvAlpha2.x = remap(vUV.x, uvRange.x, uvRange.z, uvAlpha.x, uvAlpha.z);
+        uvAlpha2.y = remap(vUV.y, uvRange.y, uvRange.w, uvAlpha.y, uvAlpha.w);
+
+        vec4 alphaSample = texture2D(videoTexture, uvAlpha2);
+        float alphaSampleFinal = alphaSample.r * alpha;
+        if (alphaSampleFinal <= alphaDiscardThreshold) discard;
+        float alphaSampleSafe = max(alphaSample.r, 0.00001); // prevent division by zero.
+        vec4 colorSample = texture2D(videoTexture, uvColor2);
+        vec3 colorUnpremultiplied = colorSample.rgb / alphaSampleSafe; // unpremultiply alpha fix.
+        colorUnpremultiplied = min(colorUnpremultiplied, vec3(1.0)); // in case colors blow out after unpremultiply.
+
+        gl_FragColor = vec4(colorUnpremultiplied, alphaSampleFinal);
+      }
+    `;
+    }
+    const alphaVideoShaderMaterial = new babylonjs.ShaderMaterial("alphaVideoShaderMaterial", scene, {
+      vertex: shaderName,
+      fragment: shaderName
+    }, {
+      attributes: ["position", "uv"],
+      uniforms: ["worldViewProjection", "alpha", "alphaDiscardThreshold"],
+      samplers: ["videoTexture"],
+      needAlphaBlending: true
+    });
+    if (!uvRange) uvRange = new babylonjs.Vector4(0, 0, 1, 1);
+    if (!uvColor) uvColor = new babylonjs.Vector4(0, 0, 0.5, 1);
+    if (!uvAlpha) uvAlpha = new babylonjs.Vector4(0.5, 0, 1, 1);
+    alphaVideoShaderMaterial.setTexture("videoTexture", videoTexture);
+    alphaVideoShaderMaterial.setVector4("uvRange", uvRange);
+    alphaVideoShaderMaterial.setVector4("uvColor", uvColor);
+    alphaVideoShaderMaterial.setVector4("uvAlpha", uvAlpha);
+    alphaVideoShaderMaterial.setFloat("alphaDiscardThreshold", 0);
+    alphaVideoShaderMaterial.setFloat("alpha", 1);
+    return alphaVideoShaderMaterial;
+  }
+  class CreatorVideoElement extends CreatorElement {
+    constructor(scene, parent, child, file, hasAlpha, videoElement) {
+      super(scene, parent, child, file);
+      __publicField(this, "hasAlpha");
+      __publicField(this, "videoTexture");
+      __publicField(this, "injectedVideo");
+      __publicField(this, "ownsVideoElement");
+      this.hasAlpha = hasAlpha;
+      this.injectedVideo = videoElement;
+      this.ownsVideoElement = !videoElement;
+    }
+    // The backing <video> element (exposed for first-frame / readyState checks).
+    get videoElement() {
+      var _a;
+      return ((_a = this.videoTexture) == null ? void 0 : _a.video) ?? this.injectedVideo;
+    }
+    async build() {
+      const asset = {
+        path: this.file.path,
+        id: this.sceneID,
+        videoElement: this.injectedVideo
+      };
+      await loadVideo(asset, this.scene);
+      const videoTexture = asset.videoTexture;
+      if (!videoTexture) return;
+      this.videoTexture = videoTexture;
+      const plane = babylonjs.MeshBuilder.CreatePlane(`${this.sceneID}_video`, { size: 1 }, this.scene);
+      plane.parent = this.anchor;
+      let material;
+      if (this.hasAlpha) {
+        material = initAlphaVideoShaderMaterial(
+          this.scene,
+          videoTexture,
+          new babylonjs.Vector4(1, 0, 0, 1),
+          // range (U flipped)
+          new babylonjs.Vector4(0, 0, 0.5, 1),
+          // colour = left half
+          new babylonjs.Vector4(0.5, 0, 1, 1)
+          // alpha = right half
+        );
+      } else {
+        const sm = new babylonjs.StandardMaterial(`${this.sceneID}_vmat`, this.scene);
+        videoTexture.uScale = -1;
+        sm.diffuseTexture = videoTexture;
+        sm.emissiveTexture = videoTexture;
+        sm.emissiveColor = new babylonjs.Color3(1, 1, 1);
+        sm.disableLighting = true;
+        sm.backFaceCulling = false;
+        material = sm;
+      }
+      plane.material = material;
+      this.applyTransform();
+      const video = videoTexture.video;
+      if (this.ownsVideoElement) {
+        video.loop = true;
+        video.muted = true;
+        void video.play().catch(() => {
+        });
+      } else if (IS_BABYLON_NATIVE_JSCORE) {
+        video.loop = true;
+        void video.play().catch(() => {
+        });
+      }
+    }
+    // Show/hide also drives playback (pause when hidden).
+    setEnabled(visible) {
+      super.setEnabled(visible);
+      const video = this.videoElement;
+      if (!video) return;
+      if (visible) void video.play().catch(() => {
+      });
+      else if (this.ownsVideoElement) video.pause();
+    }
+    dispose() {
+      var _a, _b;
+      if (this.ownsVideoElement) {
+        try {
+          (_b = (_a = this.videoTexture) == null ? void 0 : _a.video) == null ? void 0 : _b.pause();
+        } catch {
+        }
+      }
+      this.videoTexture = void 0;
+      super.dispose();
+    }
+  }
+  const sceneContainers = /* @__PURE__ */ new WeakMap();
+  const sceneLoading = /* @__PURE__ */ new WeakMap();
+  function cacheFor(scene) {
+    let cache2 = sceneContainers.get(scene);
+    if (!cache2) {
+      cache2 = /* @__PURE__ */ new Map();
+      sceneContainers.set(scene, cache2);
+    }
+    return cache2;
+  }
+  function loadingFor(scene) {
+    let loading = sceneLoading.get(scene);
+    if (!loading) {
+      loading = /* @__PURE__ */ new Map();
+      sceneLoading.set(scene, loading);
+    }
+    return loading;
+  }
+  async function getModelContainer(path, scene, extension = ".glb") {
+    const cache2 = cacheFor(scene);
+    const cached = cache2.get(path);
+    if (cached) return cached;
+    const loading = loadingFor(scene);
+    let inFlight = loading.get(path);
+    if (!inFlight) {
+      inFlight = babylonjs.SceneLoader.LoadAssetContainerAsync("", path, scene, void 0, extension).then((container) => {
+        cache2.set(path, container);
+        loading.delete(path);
+        return container;
+      }).catch((err) => {
+        loading.delete(path);
+        throw err;
+      });
+      loading.set(path, inFlight);
+    }
+    return inFlight;
+  }
+  async function loadModelInstance(asset, scene, rootNode) {
+    const container = await getModelContainer(asset.path, scene, asset.extension ?? ".glb");
+    const entries = container.instantiateModelsToScene((name) => `${rootNode.name}_${name}`, false);
+    for (const node of entries.rootNodes) node.parent = rootNode;
+    asset.rootNodes = entries.rootNodes;
+    asset.animationGroups = entries.animationGroups;
+  }
+  function unloadModelInstance(asset) {
+    if (asset.animationGroups) {
+      for (const group of asset.animationGroups) {
+        group.stop();
+        group.dispose();
+      }
+      asset.animationGroups = void 0;
+    }
+    if (asset.rootNodes) {
+      for (const node of asset.rootNodes) node.dispose(false, false);
+      asset.rootNodes = void 0;
+    }
+  }
+  function disposeModelCache(scene) {
+    const cache2 = sceneContainers.get(scene);
+    if (cache2) {
+      for (const container of cache2.values()) container.dispose();
+      cache2.clear();
+      sceneContainers.delete(scene);
+    }
+    sceneLoading.delete(scene);
+  }
+  class CreatorGlbElement extends CreatorElement {
+    constructor() {
+      super(...arguments);
+      __publicField(this, "instanceAsset", { type: "model", path: "" });
+    }
+    get panelFlip() {
+      return false;
+    }
+    async build() {
+      this.instanceAsset = { type: "model", path: this.file.path, extension: ".glb" };
+      await loadModelInstance(this.instanceAsset, this.scene, this.anchor);
+      this.applyTransform();
+      for (const group of this.instanceAsset.animationGroups ?? []) group.play(true);
+    }
+    dispose() {
+      unloadModelInstance(this.instanceAsset);
+      this.anchor.dispose();
+    }
+  }
+  class VideoPoolConfig {
+    constructor() {
+      __publicField(this, "videoPrefix", "ejw-video");
+      __publicField(this, "oneAtATimeUnlock", true);
+      __publicField(this, "autoPlay", true);
+      __publicField(this, "loop", true);
+      __publicField(this, "muted", false);
+      __publicField(this, "hidden", true);
+      __publicField(this, "parentElement");
+      __publicField(this, "numOfVideos", 1);
+    }
+  }
+  class VideoPool {
+    constructor(config) {
+      __publicField(this, "config");
+      __publicField(this, "videos", []);
+      __publicField(this, "videosToUnlock", []);
+      __publicField(this, "pointerUnlockActive", false);
+      __publicField(this, "nextVideoIndex", 0);
+      __publicField(this, "muted", false);
+      __publicField(this, "unlockBound");
+      this.config = config ?? new VideoPoolConfig();
+      this.muted = this.config.muted;
+      this.unlockBound = this.unlock.bind(this);
+      this.init();
+      this.bindPointerUnlock();
+    }
+    //---------------------------------------------------------- init / dispose.
+    dispose() {
+      this.unbindPointerUnlock();
+      this.videos.forEach((video) => {
+        video.pause();
+        video.src = "";
+        video.load();
+        if (video.parentElement) {
+          video.parentElement.removeChild(video);
+        }
+      });
+      this.videos = [];
+      this.videosToUnlock = [];
+      this.nextVideoIndex = 0;
+    }
+    init() {
+      if (IS_BABYLON_NATIVE_JSCORE || typeof document === "undefined") {
+        const NativeVideo = globalThis.HTMLVideoElement;
+        if (!NativeVideo) {
           return;
         }
-        if (!this.xr) {
-          reject(new Error("app.immersal.webxr.localize: no xr."));
-          return;
+        for (let i = 0; i < this.config.numOfVideos; i++) {
+          const video = new NativeVideo();
+          video.id = `${this.config.videoPrefix}-${i + 1}`;
+          video.autoplay = this.config.autoPlay;
+          video.loop = this.config.loop;
+          video.muted = this.config.muted;
+          this.videos.push(video);
         }
-        const xrSessionManager = this.xr.baseExperience.sessionManager;
-        if (!xrSessionManager.inXRSession) {
-          reject(new Error("app.immersal.webxr.localize: not in XR session."));
-          return;
+        return;
+      }
+      const parentElement = this.config.parentElement ?? document.body;
+      for (let i = 0; i < this.config.numOfVideos; i++) {
+        const video = document.createElement("video");
+        video.id = `${this.config.videoPrefix}-${i + 1}`;
+        video.autoplay = this.config.autoPlay;
+        video.loop = this.config.loop;
+        video.muted = true;
+        video.playsInline = true;
+        video.setAttribute("playsinline", "true");
+        if (this.config.hidden) {
+          video.style.display = "none";
         }
-        xrSessionManager.runInXRFrame(async () => {
-          var _a;
-          try {
-            const frame = xrSessionManager.currentFrame;
-            if (frame === null) {
-              reject(new Error("app.immersal.webxr.localize: no frame."));
-              return;
-            }
-            if (!this.camera) {
-              reject(new Error("app.immersal.webxr.localize: no active camera."));
-              return;
-            }
-            const referenceSpace = xrSessionManager.referenceSpace;
-            const viewerPose = frame.getViewerPose(referenceSpace);
-            if (!viewerPose) {
-              reject(new Error("app.immersal.webxr.localize: no viewer pose."));
-              return;
-            }
-            const view2 = viewerPose.views[0];
-            if (!view2) {
-              reject(new Error("app.immersal.webxr.localize: no view."));
-              return;
-            }
-            this.cameraMat = babylonjs.Matrix.FromArray(view2.transform.matrix, 0);
-            const cameraMatScl = new babylonjs.Vector3(1, 1, 1);
-            const cameraMatPos = new babylonjs.Vector3(0, 0, 0);
-            const cameraMatRot = babylonjs.Quaternion.Identity();
-            this.cameraMat.decompose(cameraMatScl, cameraMatRot, cameraMatPos);
-            if (IS_BABYLON_NATIVE_JSCORE) {
-              const ds = 2;
-              const nativeFrame = frame._nativeImpl ?? frame;
-              const cameraImage = (_a = nativeFrame.getCameraImageData) == null ? void 0 : _a.call(nativeFrame, 0, ds, true);
-              if (!cameraImage) {
-                reject(new Error("app.immersal.webxr.localize: no native camera image."));
-                return;
-              }
-              const { width, height } = cameraImage;
-              const intrinsics = this.getCameraIntrinsics(view2.projectionMatrix, { x: 0, y: 0, width: width * ds, height: height * ds });
-              if (intrinsics === null) {
-                reject(new Error("app.immersal.webxr.localize: no intrinsics."));
-                return;
-              }
-              intrinsics.focalLength.x /= ds;
-              intrinsics.focalLength.y /= ds;
-              intrinsics.principalOffset.x /= ds;
-              intrinsics.principalOffset.y /= ds;
-              const gray = new Uint8ClampedArray(cameraImage.data);
-              this.localize(gray, width, height, intrinsics).then((res) => {
-                resolve(res);
-              }).catch((err2) => {
-                reject(err2);
-              });
-            } else if (IS_EYEJACK_APP) {
-              this.localize().then((res) => {
-                resolve(res);
-              }).catch((err2) => {
-                reject(err2);
-              });
-            } else {
-              if (!view2.camera) {
-                reject(new Error("app.immersal.webxr.localize: no view camera."));
-                return;
-              }
-              const viewport = {
-                x: 0,
-                y: 0,
-                width: view2.camera.width,
-                height: view2.camera.height
-              };
-              const intrinsics = this.getCameraIntrinsics(view2.projectionMatrix, viewport);
-              if (intrinsics === null) {
-                reject(new Error("app.immersal.webxr.localize: no intrinsics."));
-                return;
-              }
-              const size = {
-                width: Math.floor(view2.camera.width),
-                height: Math.floor(view2.camera.height)
-              };
-              if (this.downsampler && this.downsamplerRatio !== 1) {
-                intrinsics.focalLength.x *= this.downsamplerRatio;
-                intrinsics.focalLength.y *= this.downsamplerRatio;
-                intrinsics.principalOffset.x *= this.downsamplerRatio;
-                intrinsics.principalOffset.y *= this.downsamplerRatio;
-                size.width = Math.floor(size.width * this.downsamplerRatio);
-                size.height = Math.floor(size.height * this.downsamplerRatio);
-              }
-              const imageDataResult = this.createCameraImageDataFromFrame(frame, size);
-              if (!imageDataResult) throw new Error("app.immersal.webxr.localize: Could not get camera image data.");
-              const { imageData, imageWidth, imageHeight } = imageDataResult;
-              this.localize(imageData, imageWidth, imageHeight, intrinsics).then((res) => {
-                resolve(res);
-              }).catch((err2) => {
-                reject(err2);
-              });
-            }
-          } catch (err2) {
-            reject(err2 instanceof Error ? err2 : new Error(String(err2)));
-          }
-        }, true);
+        parentElement.appendChild(video);
+        this.videos.push(video);
+        this.videosToUnlock.push(video);
+      }
+    }
+    //---------------------------------------------------------- video getters.
+    getVideos() {
+      return [...this.videos];
+    }
+    getVideoById(id) {
+      return this.videos.find((video) => video.id === id);
+    }
+    getVideoByIndex(index) {
+      if (index < 0 || index >= this.videos.length) {
+        return void 0;
+      }
+      return this.videos[index];
+    }
+    getVideoByNextIndex() {
+      if (this.videos.length === 0) {
+        return void 0;
+      }
+      const video = this.videos[this.nextVideoIndex % this.videos.length];
+      this.nextVideoIndex++;
+      return video;
+    }
+    //---------------------------------------------------------- audio.
+    setMuted(muted) {
+      this.muted = muted;
+      this.videos.forEach((video) => {
+        const isPendingUnlock = this.videosToUnlock.includes(video);
+        video.muted = isPendingUnlock ? true : this.muted;
       });
     }
-    createCameraImageDataFromFrame(frame, size) {
-      var _a;
-      if (size.width * size.height === 0) {
-        throw new Error(`app.immersal.webxr.createCameraImageDataFromFrame: Cannot downsample to an image with 0 pixels.  Recieved size ${size.width}x${size.height}.`);
+    getMuted() {
+      return this.muted;
+    }
+    //---------------------------------------------------------- video unlock.
+    bindPointerUnlock() {
+      if (typeof window === "undefined") {
+        return;
       }
-      if (this.rawCameraTexture) {
-        this.rawCameraTexture._texture._hardwareTexture._webGLTexture = null;
-        this.rawCameraTexture.dispose();
+      if (this.pointerUnlockActive) {
+        return;
       }
-      const xrSessionManager = (_a = this.xr) == null ? void 0 : _a.baseExperience.sessionManager;
-      const referenceSpace = xrSessionManager.referenceSpace;
-      this.rawCameraTexture = this.createCameraTexture(this.engine, referenceSpace, frame);
-      if (this.rawCameraTexture === null) {
-        return null;
+      window.addEventListener("pointerdown", this.unlockBound);
+      this.pointerUnlockActive = true;
+    }
+    unbindPointerUnlock() {
+      if (typeof window === "undefined") {
+        return;
       }
-      if (this.downsampler) {
-        this.rawCameraTexture = this.downsampler.downsample(this.rawCameraTexture, size);
+      if (!this.pointerUnlockActive) {
+        return;
       }
-      const internalTexture = this.rawCameraTexture.getInternalTexture();
-      if (!internalTexture) {
-        return null;
+      window.removeEventListener("pointerdown", this.unlockBound);
+      this.pointerUnlockActive = false;
+    }
+    unlock() {
+      if (this.videosToUnlock.length === 0) {
+        this.unbindPointerUnlock();
+        return;
       }
-      if (this.pixelDataRgba.length !== size.width * size.height * 4) {
-        this.pixelDataRgba = new Uint8ClampedArray(size.width * size.height * 4);
-        console.log(`pixelDataRgba resized ${size.width}x${size.height}x4=${size.width * size.height * 4 / 1024}kb`);
-      }
-      this.engine._readTexturePixelsSync(internalTexture, size.width, size.height, void 0, void 0, this.pixelDataRgba, true, true);
-      if (this.pixelDataGrayscale.length !== size.width * size.height) {
-        this.pixelDataGrayscale = new Uint8ClampedArray(size.width * size.height);
-        console.log(`pixelDataRgba resized ${size.width}x${size.height}=${size.width * size.height / 1024}kb`);
-      }
-      if (this.downsampler) {
-        for (let i = 0; i < this.pixelDataGrayscale.length; i++) {
-          this.pixelDataGrayscale[i] = this.pixelDataRgba[i * 4];
+      if (this.config.oneAtATimeUnlock) {
+        const video = this.videosToUnlock[0];
+        try {
+          video.muted = this.muted;
+          console.log(`Video unlocked - ${video.id}`);
+          this.videosToUnlock.shift();
+        } catch (error) {
+          console.error(`Failed to unlock video - ${video.id}:`, error);
         }
       } else {
-        const imageWidth = internalTexture.width;
-        const imageHeight = internalTexture.height;
-        for (let kPel = 0; kPel < this.pixelDataGrayscale.length; kPel++) {
-          const kFlip = _AppImmersalWebXR.flip_index(
-            kPel,
-            imageWidth,
-            imageHeight
-          );
-          const offset = 4 * kPel;
-          const offsetFlip = kFlip;
-          const r = this.pixelDataRgba[offset];
-          const g = this.pixelDataRgba[offset + 1];
-          const b = this.pixelDataRgba[offset + 2];
-          const grey = 0.299 * r + 0.587 * g + 0.114 * b;
-          this.pixelDataGrayscale[offsetFlip] = grey;
-        }
+        const failedVideos = [];
+        this.videosToUnlock.forEach((video) => {
+          try {
+            video.muted = this.muted;
+            console.log(`Video unlocked - ${video.id}`);
+          } catch (error) {
+            failedVideos.push(video);
+            console.error(`Failed to unlock video - ${video.id}:`, error);
+          }
+        });
+        this.videosToUnlock = failedVideos;
       }
+      if (this.videosToUnlock.length === 0) {
+        this.unbindPointerUnlock();
+      }
+    }
+  }
+  const CreatorFileVideoType = "video";
+  const CreatorFileVideoAlphaType = "video-alpha";
+  const CreatorFileGlbType = "glb";
+  const CreatorArtworkWorldTargetType = "world-target";
+  const isCreatorArtworkWorld = (payload) => payload.type === CreatorArtworkWorldTargetType;
+  function basename(path) {
+    try {
+      return new URL(path).pathname.split("/").pop() ?? path;
+    } catch {
+      return path.split("/").pop() ?? path;
+    }
+  }
+  function isVideoFile(file) {
+    return file.type === CreatorFileVideoType || file.type === CreatorFileVideoAlphaType;
+  }
+  function createCreatorElement(scene, parent, child, file, getVideoElement) {
+    switch (file.type) {
+      case CreatorFileGlbType:
+        return new CreatorGlbElement(scene, parent, child, file);
+      case CreatorFileVideoType:
+        return new CreatorVideoElement(scene, parent, child, file, false, getVideoElement == null ? void 0 : getVideoElement());
+      case CreatorFileVideoAlphaType:
+        return new CreatorVideoElement(scene, parent, child, file, true, getVideoElement == null ? void 0 : getVideoElement());
+      default:
+        return new CreatorImageElement(scene, parent, child, file);
+    }
+  }
+  class CreatorContent extends ContentBase {
+    constructor(artwork, config = {}) {
+      super();
+      __publicField(this, "artwork");
+      __publicField(this, "config");
+      __publicField(this, "node");
+      __publicField(this, "grid");
+      __publicField(this, "elements", []);
+      // Centralised <video> elements for the video panels (gesture-unlock + mute).
+      __publicField(this, "videoPool");
+      // True once init/build has finished. Hosts gate reveal/placement on this.
+      __publicField(this, "isLoaded", false);
+      this.artwork = artwork;
+      this.config = config;
+    }
+    async init(engine, scene, camera, rootNode) {
+      var _a, _b;
+      super.init(engine, scene, camera, rootNode);
+      this.node = new babylonjs.TransformNode("creator", this.scene);
+      this.node.parent = this.rootNode ?? null;
+      const root = (_b = (_a = this.artwork.sceneConfig) == null ? void 0 : _a.scenes) == null ? void 0 : _b[0];
+      if (this.config.applyRootTransform !== false && root) {
+        this.node.position = convertPosition(root.position);
+        this.node.rotationQuaternion = rotationToQuaternion(root.rotation, false);
+        this.node.scaling = convertScale(root.scale);
+      }
+      if (this.config.showGrid) {
+        this.grid = new CreatorGrid(this.scene);
+      }
+      await this.build();
+      this.isLoaded = true;
+    }
+    async build() {
+      var _a;
+      const config = this.artwork.sceneConfig;
+      if (!config) return;
+      const fileByAssetId = this.mapFilesToAssetIds(this.artwork.files ?? [], config.assets ?? []);
+      const root = (_a = config.scenes) == null ? void 0 : _a[0];
+      const children = (root == null ? void 0 : root.children) ?? [];
+      const videoCount = children.filter((child) => {
+        const file = fileByAssetId.get(child.assetID);
+        return !!file && isVideoFile(file);
+      }).length;
+      if (videoCount > 0) {
+        const poolConfig = new VideoPoolConfig();
+        poolConfig.numOfVideos = videoCount;
+        poolConfig.parentElement = this.config.videoParent;
+        poolConfig.muted = this.config.muted ?? false;
+        this.videoPool = new VideoPool(poolConfig);
+      }
+      await Promise.all(children.map((child) => {
+        const file = fileByAssetId.get(child.assetID);
+        if (!file) return Promise.resolve(void 0);
+        return this.addElement(child, file).catch((err) => {
+          console.error("creator.content - failed to build element:", child.sceneID, err);
+          if (err == null ? void 0 : err.stack) console.error("creator.content - stack:", err.stack);
+          return void 0;
+        });
+      }));
+    }
+    // create + build + register one element. Used by build() in a batch, and
+    // available for the editor to add an element live.
+    async addElement(child, file) {
+      const element = createCreatorElement(
+        this.scene,
+        this.node,
+        child,
+        file,
+        () => {
+          var _a;
+          return (_a = this.videoPool) == null ? void 0 : _a.getVideoByNextIndex();
+        }
+      );
+      this.elements.push(element);
+      await element.build();
+      element.stampMetadata();
+      return element;
+    }
+    removeElement(sceneID) {
+      const idx = this.elements.findIndex((e) => e.sceneID === sceneID);
+      if (idx < 0) return;
+      this.elements[idx].dispose();
+      this.elements.splice(idx, 1);
+    }
+    getElement(sceneID) {
+      return this.elements.find((e) => e.sceneID === sceneID);
+    }
+    //---------------------------------------------------------- host accessors.
+    // The content's root transform node (host reparents this under an AR anchor).
+    get contentNode() {
+      return this.node;
+    }
+    // The element registry (host reveals / measures via element.getMeshes()).
+    get contentElements() {
+      return this.elements;
+    }
+    // The pooled <video> elements (host waits on readyState for first-frame fades).
+    getVideoElements() {
+      var _a;
+      return ((_a = this.videoPool) == null ? void 0 : _a.getVideos()) ?? [];
+    }
+    setMuted(muted) {
+      var _a;
+      (_a = this.videoPool) == null ? void 0 : _a.setMuted(muted);
+    }
+    getMuted() {
+      var _a;
+      return ((_a = this.videoPool) == null ? void 0 : _a.getMuted()) ?? false;
+    }
+    // Show/hide the whole content (toggles the node + each element, e.g. video
+    // pauses when hidden).
+    setEnabled(visible) {
+      var _a;
+      (_a = this.node) == null ? void 0 : _a.setEnabled(visible);
+      for (const element of this.elements) element.setEnabled(visible);
+    }
+    // Serialize the live element transforms back to a creator (Unity-space)
+    // sceneConfig — the editor's save path. Round-trips the input for an unedited
+    // scene; reflects gizmo edits once applied to the anchors.
+    getSceneConfig() {
+      var _a;
+      const source = this.artwork.sceneConfig;
+      const root = (_a = source == null ? void 0 : source.scenes) == null ? void 0 : _a[0];
+      const children = this.elements.map((el) => {
+        const t = el.readTransform();
+        return {
+          sceneID: el.sceneID,
+          assetID: el.assetId,
+          position: t.position,
+          rotation: t.rotation,
+          scale: t.scale
+        };
+      });
       return {
-        imageData: this.pixelDataGrayscale,
-        imageWidth: size.width,
-        imageHeight: size.height
+        version: (source == null ? void 0 : source.version) ?? 1,
+        assets: (source == null ? void 0 : source.assets) ?? [],
+        scenes: [
+          {
+            sceneID: (root == null ? void 0 : root.sceneID) ?? "root",
+            position: (root == null ? void 0 : root.position) ?? [0, 0, 0],
+            rotation: (root == null ? void 0 : root.rotation) ?? [0, 0, 0],
+            scale: (root == null ? void 0 : root.scale) ?? [1, 1, 1],
+            children
+          }
+        ]
       };
     }
-    static flip_index(kPel, width, height) {
-      const i = Math.floor(kPel / width);
-      const j = kPel % width;
-      return height * width - (i + 1) * width + j;
-    }
-    createCameraTexture(engine, referenceSpace, frame) {
-      const viewerPose = frame.getViewerPose(referenceSpace);
-      if (!viewerPose) {
-        console.error("app.immersal.webxr.createCameraTexture: viewerPose is null");
-        return null;
+    // match each scene child's assetID to a file: by file.id, else by the asset's
+    // path (filename) via the sceneConfig assets table.
+    mapFilesToAssetIds(files, assets) {
+      const byId = /* @__PURE__ */ new Map();
+      const byName = /* @__PURE__ */ new Map();
+      for (const file of files) {
+        if (file.id) byId.set(file.id, file);
+        byName.set(basename(file.path), file);
       }
-      const view2 = viewerPose.views[0];
-      const bindings = new XRWebGLBinding(frame.session, engine._gl);
-      const cameraWebGLTexture = bindings.getCameraImage(
-        view2.camera
-      );
-      if (!cameraWebGLTexture) {
-        console.error("app.immersal.webxr.createCameraTexture: cannot get camera WebGLTexture Object");
-        return null;
+      for (const asset of assets) {
+        if (byId.has(asset.assetID)) continue;
+        const file = byName.get(asset.assetPath);
+        if (file) byId.set(asset.assetID, file);
       }
-      const width = view2.camera.width;
-      const height = view2.camera.height;
-      const rawTexture = babylonjs.RawTexture.CreateRGBTexture(
-        new Uint8Array(width * height * 4),
-        width,
-        height,
-        null
-      );
-      rawTexture._texture._hardwareTexture._webGLTexture = cameraWebGLTexture;
-      return rawTexture;
+      return byId;
     }
-    getCameraIntrinsics(projectionMatrix, viewport) {
-      const p = projectionMatrix;
-      const u0 = (1 - p[8]) * viewport.width / 2 + viewport.x;
-      const v0 = (1 - p[9]) * viewport.height / 2 + viewport.y;
-      const ax = viewport.width / 2 * p[0];
-      const ay = viewport.height / 2 * p[5];
-      return {
-        principalOffset: {
-          x: u0,
-          y: v0
-        },
-        focalLength: {
-          x: ax,
-          y: ay
-        }
-      };
+    dispose() {
+      var _a, _b, _c;
+      for (const element of this.elements) element.dispose();
+      this.elements = [];
+      if (this.scene) disposeModelCache(this.scene);
+      (_a = this.videoPool) == null ? void 0 : _a.dispose();
+      this.videoPool = void 0;
+      (_b = this.grid) == null ? void 0 : _b.dispose();
+      this.grid = void 0;
+      (_c = this.node) == null ? void 0 : _c.dispose(false, true);
+      this.node = void 0;
+      this.isLoaded = false;
     }
-  };
-  __publicField(_AppImmersalWebXR, "DEFAULT_DOWNSAMPLER_RATIO", 1);
-  let AppImmersalWebXR = _AppImmersalWebXR;
-  const TAG = "[EJXIMM]";
-  const configImmersal = new AppImmersalConfig({
-    token: "0d9e70de2e6dad37060de2019f11f272c00fc6087fbecf803a4cffec2b24b01c",
-    // true: on-device wasm localization (locworker.js on a Worker — Babylon
-    // Native's Worker polyfill runs it on a background thread, ~20s/attempt).
-    // false: cloud VPS (~3s/attempt) — better for visual alignment checks.
-    localizeOnDevice: false,
-    maps: [
-      {
-        mapId: 96897,
-        // Map visuals: on a correct pose these line up with the physical room —
-        // the ground truth for localization accuracy.
-        loadSparseMap: true,
-        loadTexturedMesh: true,
-        pointCloudSize: 5
-      }
-    ]
-  });
-  const LOCALIZE_INTERVAL_S = 4;
-  class Main extends AppImmersalWebXR {
+  }
+  const TAG = "[EJXCREATOR]";
+  const ARTWORK_ID = "Artwork-00d587a3-7bc8-432d-b7ad-5982666873e0";
+  const LAUNCH_BASE = IS_BABYLON_NATIVE_JSCORE ? "https://launch.eyejack.io" : "/launch-proxy";
+  const CDN_HOST = "https://cdn.eyejackapp.com";
+  const CDN_PROXY = "/cdn-proxy";
+  function resolveAssetUrl(url2) {
+    if (IS_BABYLON_NATIVE_JSCORE) {
+      return url2;
+    }
+    return url2.startsWith(CDN_HOST) ? url2.replace(CDN_HOST, CDN_PROXY) : url2;
+  }
+  class Main extends AppWebXRSimple {
     constructor() {
       let renderCanvas = void 0;
       if (!IS_BABYLON_NATIVE_JSCORE) {
         renderCanvas = document.getElementById("renderCanvas");
       }
       super(renderCanvas);
-      __publicField(this, "localizeCountdown", 2);
-      // first attempt shortly after XR starts
-      __publicField(this, "localizeCount", 0);
-      __publicField(this, "successCount", 0);
     }
-    initialize() {
-      super.initialize();
+    initXROptions() {
+      const options = new XRModuleSessionOptions();
+      options.enableHitTest = true;
+      options.disableDefaultUI = IS_BABYLON_NATIVE_JSCORE;
+      return options;
+    }
+    initCustom() {
       const light = new babylonjs.HemisphericLight("light", new babylonjs.Vector3(0, 1, 0), this.scene);
       light.intensity = 1;
-      const makeBar = (name, size, pos, color) => {
-        const bar = babylonjs.MeshBuilder.CreateBox(name, { width: size[0], height: size[1], depth: size[2] }, this.scene);
-        const mat = new babylonjs.StandardMaterial(`${name}-mat`, this.scene);
-        mat.emissiveColor = color;
-        mat.disableLighting = true;
-        bar.material = mat;
-        bar.position = new babylonjs.Vector3(pos[0], pos[1], pos[2]);
-        bar.parent = this.rootNode;
-        return bar;
-      };
-      makeBar("axisX", [0.5, 0.03, 0.03], [0.25, 0, 0], new babylonjs.Color3(1, 0, 0));
-      makeBar("axisY", [0.03, 0.5, 0.03], [0, 0.25, 0], new babylonjs.Color3(0, 1, 0));
-      makeBar("axisZ", [0.03, 0.03, 0.5], [0, 0, 0.25], new babylonjs.Color3(0, 0, 1));
-      makeBar("origin", [0.1, 0.1, 0.1], [0, 0, 0], new babylonjs.Color3(1, 1, 1));
     }
-    startDemoXR() {
-      console.log(`${TAG} starting XR...`);
-      this.startXR().then(() => console.log(`${TAG} XR session started`)).catch((e) => console.log(`${TAG} XR start failed: ${(e == null ? void 0 : e.message) ?? e}`));
-    }
-    render() {
+    async loadAsync() {
       var _a;
-      super.render();
-      if (!((_a = this.xrSession) == null ? void 0 : _a.isXRRunning) || this.localizing) {
-        return;
+      const url2 = `${LAUNCH_BASE}/${ARTWORK_ID}/json`;
+      console.log(`${TAG} fetching artwork: ${url2}`);
+      const response = await fetch(url2);
+      if (!response.ok) {
+        throw new Error(`artwork fetch failed: ${response.status} ${response.statusText}`);
       }
-      this.localizeCountdown -= this.timeDelta;
-      if (this.localizeCountdown > 0) {
-        return;
+      const payload = await response.json();
+      if (!isCreatorArtworkWorld(payload)) {
+        throw new Error("artwork is not a world-target (panels) artwork");
       }
-      this.localizeCountdown = LOCALIZE_INTERVAL_S;
-      const attempt = ++this.localizeCount;
-      console.log(`${TAG} localize #${attempt}...`);
-      const t0 = performance.now();
-      this.localizeAsync().then((result) => {
-        const ms = Math.round(performance.now() - t0);
-        if (result.success) {
-          this.successCount++;
-          console.log(`${TAG} localize #${attempt} SUCCESS (${ms}ms) confidence=${result.confidence} map=${result.map} [${this.successCount}/${attempt}]`);
-        } else {
-          console.log(`${TAG} localize #${attempt} no match (${ms}ms) [${this.successCount}/${attempt}]`);
-        }
-      }).catch((e) => {
-        const ms = Math.round(performance.now() - t0);
-        console.log(`${TAG} localize #${attempt} FAILED (${ms}ms): ${(e == null ? void 0 : e.message) ?? e}`);
-      });
+      console.log(`${TAG} artwork: ${payload.name ?? "(unnamed)"} — ${((_a = payload.files) == null ? void 0 : _a.length) ?? 0} files`);
+      const artwork = {
+        ...payload,
+        files: (payload.files ?? []).map((file) => ({ ...file, path: resolveAssetUrl(file.path) }))
+      };
+      await this.setContent(new CreatorContent(artwork, { showGrid: false, muted: !IS_BABYLON_NATIVE_JSCORE }));
+      console.log(`${TAG} content loaded`);
+      if (IS_BABYLON_NATIVE_JSCORE) {
+        setTimeout(() => {
+          var _a2;
+          console.log(`${TAG} starting XR (native)`);
+          (_a2 = this.xrSession) == null ? void 0 : _a2.startXR().then(() => console.log(`${TAG} XR session started`)).catch((e) => console.log(`${TAG} XR start failed: ${(e == null ? void 0 : e.message) ?? e}`));
+        }, 2e3);
+      }
     }
   }
   console.log(`${TAG} bundle evaluated (jscore=${IS_BABYLON_NATIVE_JSCORE})`);
   if (!IS_BABYLON_NATIVE_WEBVIEW) {
     const app = new Main();
-    app.setConfigImmersal(configImmersal);
-    app.setConfigImmersalWebXR(new AppImmersalWebXRConfig({ useFloorEstimate: false }));
     app.init();
-    app.loadAsync().then(() => {
-      var _a;
-      console.log(`${TAG} loaded`);
-      if (IS_BABYLON_NATIVE_JSCORE) {
-        setTimeout(() => app.startDemoXR(), 2e3);
-      } else {
-        (_a = document.getElementById("startButton")) == null ? void 0 : _a.addEventListener("click", () => app.startDemoXR());
-      }
-    }).catch((e) => {
-      const err2 = e;
-      console.log(`${TAG} loadAsync FAILED: ${(err2 == null ? void 0 : err2.message) ?? e}`);
-      if (err2 == null ? void 0 : err2.stack) console.log(`${TAG} stack: ${err2.stack}`);
+    app.loadAsync().then(() => console.log(`${TAG} loadAsync complete`)).catch((e) => {
+      const err = e;
+      console.log(`${TAG} loadAsync FAILED: ${(err == null ? void 0 : err.message) ?? e}`);
+      if (err == null ? void 0 : err.stack) console.log(`${TAG} stack: ${err.stack}`);
     });
     console.log(`${TAG} app initialized`);
   }
