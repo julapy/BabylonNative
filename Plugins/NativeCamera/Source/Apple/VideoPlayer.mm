@@ -231,6 +231,22 @@ namespace Babylon::Plugins
         m_state->deviceContext = &deviceContext;
         m_state->eventCallback = std::move(eventCallback);
 
+        // Media playback audio session: the process default (SoloAmbient)
+        // respects the ringer/silent switch, so video audio would be
+        // inaudible on most devices. Playback is the standard category for
+        // apps that render video with sound; MixWithOthers avoids stopping
+        // background music. Set once, best-effort.
+#if TARGET_OS_IOS
+        static dispatch_once_t audioSessionOnce;
+        dispatch_once(&audioSessionOnce, ^{
+            NSError* audioError = nil;
+            [[AVAudioSession sharedInstance] setCategory:AVAudioSessionCategoryPlayback
+                                             withOptions:AVAudioSessionCategoryOptionMixWithOthers
+                                                   error:&audioError];
+            [[AVAudioSession sharedInstance] setActive:YES error:&audioError];
+        });
+#endif
+
         NSURL* nsUrl = ResolveUrl(url);
         m_state->item = [AVPlayerItem playerItemWithURL:nsUrl];
         m_state->player = [AVPlayer playerWithPlayerItem:m_state->item];
