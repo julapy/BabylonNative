@@ -32,7 +32,9 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
         // stock experience (which would create a second engine).
         // runtime.loadScript("app:///Scripts/experience.js")
         runtime.loadScript("app:///Scripts/ejx-ua-shim.js")
-        runtime.loadScript("app:///Scripts/ejx-app.js")
+        // Two-artifact EJ load order: library (global EJ) then the app layer.
+        runtime.loadScript("app:///Scripts/ej-web-core.js")
+        runtime.loadScript("app:///Scripts/ej-app.js")
         // runtime.loadScript("app:///Scripts/ejx-worker-test.js")
         // runtime.loadScript("app:///Scripts/ejx-wasm-test.js")
 
