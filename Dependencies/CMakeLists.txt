@@ -45,6 +45,16 @@ FetchContent_MakeAvailable_With_Message(bgfx.cmake)
 # See https://github.com/BabylonJS/bgfx.cmake/blob/0af3c9865a66aff1748a51bb466b24f05a123043/cmake/bgfx/bgfx.cmake#L126.
 target_compile_definitions(bgfx PRIVATE BGFX_CONFIG_DEBUG_ANNOTATION=0)
 
+# [EyeJack] Silence bgfx debug traces (BX_TRACE) in Debug builds: they log
+# every texture/uniform/shader event — with per-frame XR render-target churn
+# that floods the console at ~120 lines/sec and adds measurable overhead.
+# Flip to 1 locally when debugging bgfx itself.
+target_compile_definitions(bgfx PRIVATE BGFX_CONFIG_DEBUG=0)
+# bx's own BX_TRACE takes over when BGFX_CONFIG_DEBUG is off (bx/debug.h
+# falls back on BX_CONFIG_DEBUG, which is 1 in Debug) — silence that layer
+# too. Note this also disables BX_ASSERT within bgfx compilation units.
+target_compile_definitions(bgfx PRIVATE BX_CONFIG_DEBUG=0)
+
 target_compile_definitions(bgfx PRIVATE BGFX_CONFIG_DEFAULT_MAX_ENCODERS=2)
 target_compile_definitions(bgfx PRIVATE BGFX_CONFIG_MAX_VERTEX_STREAMS=18)
 target_compile_definitions(bgfx PRIVATE BGFX_CONFIG_MIN_RESOURCE_COMMAND_BUFFER_SIZE=16)
