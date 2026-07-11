@@ -141,7 +141,13 @@ namespace Babylon
                                     m_sessionState->Frame.reset();
                                 }
                                 while (!shouldEndSession);
-
+                            })
+                            // [EyeJack] Destroy SessionState on the JS thread: it owns
+                            // Napi::Persistent references (ViewConfiguration::JsTextures —
+                            // an in-flight frame can repopulate them after the synchronous
+                            // clears above), and napi_delete_reference asserts (and is
+                            // unsafe) off the JS thread on JavaScriptCore.
+                            .then(m_runtimeScheduler, arcana::cancellation::none(), [this, thisRef{shared_from_this()}](const arcana::expected<void, std::exception_ptr>&) {
                                 m_sessionState.reset();
                                 m_beginTask.reset();
                                 NotifySessionStateChanged(false);
