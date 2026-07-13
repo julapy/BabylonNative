@@ -163,12 +163,16 @@ target_include_directories(Playground PRIVATE ".")
 #   - Embedding : the Runtime + View API the host is built on.
 #   - bx        : <bx/*.h> used by Shared/Diagnostics.cpp.
 #   - TestUtils : <Babylon/Plugins/TestUtils.h> used by Win32/X11 --test mode.
+#                 [EyeJack] defaults OFF in this fork — linked only when built.
 target_link_libraries(Playground
     PRIVATE Embedding
     PRIVATE bx
-    PRIVATE TestUtils
     ${ADDITIONAL_LIBRARIES}
     ${BABYLON_NATIVE_PLAYGROUND_EXTENSION_LIBRARIES})
+
+if(BABYLON_NATIVE_PLUGIN_TESTUTILS)
+    target_link_libraries(Playground PRIVATE TestUtils)
+endif()
 
 # See https://gitlab.kitware.com/cmake/cmake/-/issues/23543
 # If we can set minimum required to 3.26+, then we can use the `copy -t` syntax instead.
