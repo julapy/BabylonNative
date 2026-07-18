@@ -1,0 +1,65 @@
+diff --git a/src/renderer_mtl.cpp b/src/renderer_mtl.cpp
+index c022385f8..df373d400 100644
+--- a/src/renderer_mtl.cpp
++++ b/src/renderer_mtl.cpp
+@@ -13,6 +13,11 @@
+ #include <metal-cpp/metal.hpp>
+ 
+ #include "renderer_mtl.h"
++
++// [EyeJack] simulator detection for the readTexture workaround below.
++#if BX_PLATFORM_IOS
++#	include <TargetConditionals.h>
++#endif
+ #include "renderer.h"
+ #include <bx/macros.h>
+ 
+@@ -1356,18 +1361,45 @@ static_assert(BX_COUNTOF(s_accessNames) == Access::Count, "Invalid s_accessNames
+ 			endEncoding();
+ #endif  // BX_PLATFORM_OSX
+ 
+-			m_cmd.kick(false, true);
+-			m_commandBuffer = NULL;
+-
+ 			BX_ASSERT(_mip<texture.m_numMips,"Invalid mip: %d num mips:",_mip,texture.m_numMips);
+ 
+ 			const uint32_t srcWidth  = bx::max(1, texture.m_ptr->width()  >> _mip);
+ 			const uint32_t srcHeight = bx::max(1, texture.m_ptr->height() >> _mip);
+ 			const uint8_t  bpp       = bimg::getBitsPerPixel(bimg::TextureFormat::Enum(texture.m_textureFormat) );
+ 
++#if BX_PLATFORM_IOS && defined(TARGET_OS_SIMULATOR) && TARGET_OS_SIMULATOR
++			// [EyeJack] iOS Simulator: shared-storage textures are not
++			// CPU-readable (MTLTexture getBytes returns zeros) — route the
++			// readback through a shared MTLBuffer blit instead.
++			const uint32_t rowBytes = srcWidth*bpp/8;
++			MTL::Buffer* readback = s_renderMtl->m_device->newBuffer(rowBytes*srcHeight, MTL::ResourceCPUCacheModeDefaultCache);
++			MTL::BlitCommandEncoder* rbce = s_renderMtl->getBlitCommandEncoder();
++			rbce->copyFromTexture(
++				  texture.m_ptr
++				, _layer
++				, _mip
++				, MTL::Origin::Make(0, 0, 0)
++				, MTL::Size::Make(srcWidth, srcHeight, 1)
++				, readback
++				, 0
++				, rowBytes
++				, rowBytes*srcHeight
++				);
++			s_renderMtl->endEncoding();
++
++			m_cmd.kick(false, true);
++			m_commandBuffer = NULL;
++
++			bx::memCopy(_data, readback->contents(), rowBytes*srcHeight);
++			s_renderMtl->m_cmd.release(readback);
++#else
++			m_cmd.kick(false, true);
++			m_commandBuffer = NULL;
++
+ 			MTL::Region region(0, 0, 0, srcWidth, srcHeight, 1);
+ 
+ 			texture.m_ptr->getBytes(_data, srcWidth*bpp/8, 0, region, _mip, _layer);
++#endif
+ 		}
+ 
+ 		void resizeTexture(TextureHandle _handle, uint16_t _width, uint16_t _height, uint8_t _numMips, uint16_t _numLayers) override

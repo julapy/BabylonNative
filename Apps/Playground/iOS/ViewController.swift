@@ -1,18 +1,40 @@
 import UIKit
 import MetalKit
+import AVFoundation
 
 class ViewController: UIViewController {
 
     var mtkView: MTKView!
     var xrView: MTKView!
     var bnView: BNView?
+    private var babylonStarted = false
 
     override func viewDidAppear(_ animated: Bool) {
         super.viewDidAppear(animated)
+        // ARKit's implicit camera TCC prompt does not reliably present when
+        // NativeXr starts the ARSession off the main thread — on fresh
+        // installs the session comes up frameless (black camera, no alert).
+        // Request camera access explicitly and defer the runtime attach until
+        // the user answers (the same fix EyeJackClip's NativeViewController
+        // carries). Denied/restricted still starts Babylon: non-XR content
+        // works, XR stays black until camera is enabled in Settings.
+        switch AVCaptureDevice.authorizationStatus(for: .video) {
+        case .notDetermined:
+            AVCaptureDevice.requestAccess(for: .video) { [weak self] _ in
+                DispatchQueue.main.async { self?.startBabylon() }
+            }
+        default:
+            startBabylon()
+        }
+    }
+
+    private func startBabylon() {
+        guard !babylonStarted else { return }
         guard
             let appDelegate = UIApplication.shared.delegate as? AppDelegate,
             let runtime = appDelegate.runtime
         else { return }
+        babylonStarted = true
 
         setupViews()
 

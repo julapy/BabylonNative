@@ -33,9 +33,17 @@ FetchContent_Declare(base-n
     GIT_REPOSITORY https://github.com/azawadzki/base-n.git
     GIT_TAG 7573e77c0b9b0e8a5fb63d96dbde212c921993b4
     EXCLUDE_FROM_ALL)
+# [EyeJack] PATCH_COMMAND applies patches/bgfx-simulator-texture-readback.patch
+# to the bgfx submodule: on the iOS Simulator, MTLTexture getBytes on
+# shared-storage textures silently returns zeros, so bgfx::readTexture must
+# route through a shared MTLBuffer blit there. Required for RTT readbacks
+# (image-target GPU feature extraction) in the simulator dev loop.
+# Note: runs only on a fresh FetchContent populate; an already-populated
+# _deps tree must be patched manually (git apply in _deps/bgfx.cmake-src/bgfx).
 FetchContent_Declare(bgfx.cmake
     GIT_REPOSITORY https://github.com/BabylonJS/bgfx.cmake.git
     GIT_TAG 68762dde81848256bd785880b00309832b1cad27
+    PATCH_COMMAND git -C <SOURCE_DIR>/bgfx apply --check ${CMAKE_CURRENT_SOURCE_DIR}/patches/bgfx-simulator-texture-readback.patch && git -C <SOURCE_DIR>/bgfx apply ${CMAKE_CURRENT_SOURCE_DIR}/patches/bgfx-simulator-texture-readback.patch || true
     EXCLUDE_FROM_ALL)
 FetchContent_Declare(CMakeExtensions
     GIT_REPOSITORY https://github.com/BabylonJS/CMakeExtensions.git
