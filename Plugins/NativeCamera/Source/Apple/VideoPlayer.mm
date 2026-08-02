@@ -215,6 +215,16 @@ namespace Babylon::Plugins
             _state->eventCallback(Babylon::Plugins::VideoPlayer::Event::MetadataLoaded);
         }
     }
+    else if ([keyPath isEqualToString:@"status"] && _state->item.status == AVPlayerItemStatusFailed)
+    {
+        // Without this, a failed remote item leaves every JS "ready" waiter
+        // hanging forever — the item can never reach ReadyToPlay.
+        NSLog(@"VideoPlayer: item failed - %@", _state->item.error.localizedDescription);
+        if (!_state->invalid.load() && _state->eventCallback)
+        {
+            _state->eventCallback(Babylon::Plugins::VideoPlayer::Event::Failed);
+        }
+    }
 }
 @end
 

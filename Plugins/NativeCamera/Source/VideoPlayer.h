@@ -30,6 +30,7 @@ namespace Babylon::Plugins
             MetadataLoaded, // duration/dimensions known; playback can start
             Ended,          // reached the end (not fired when looping)
             Seeked,         // a Seek() completed
+            Failed,         // the item can never become ready (raises "error" in JS)
         };
 
         using EventCallbackT = std::function<void(Event)>;

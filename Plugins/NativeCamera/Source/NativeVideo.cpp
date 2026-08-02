@@ -311,6 +311,9 @@ namespace Babylon::Plugins
                     case VideoPlayer::Event::Seeked:
                         RaiseEvent("seeked");
                         break;
+                    case VideoPlayer::Event::Failed:
+                        RaiseEvent("error");
+                        break;
                 }
             });
         });
