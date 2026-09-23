@@ -59,7 +59,9 @@ namespace Babylon
                 // TODO: Once multiple reference views are supported, we need to convert the values into the passed in reference space.
                 Napi::Object napiPose = XRPose::New(info);
                 XRPose* pose = XRPose::Unwrap(napiPose);
-                pose->Update(info, m_hitResult.Pose);
+                // A hit-test pose locates the surface in world space. It is not
+                // a camera view transform, so its matrix must not be inverted.
+                pose->Update(info, m_hitResult.Pose, false);
 
                 return napiPose;
             }

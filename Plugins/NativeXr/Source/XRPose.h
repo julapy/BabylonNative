@@ -36,10 +36,10 @@ namespace Babylon
         {
         }
 
-        void Update(const Napi::CallbackInfo& /*info*/, const xr::Pose& pose)
+        void Update(const Napi::CallbackInfo& /*info*/, const xr::Pose& pose, bool isViewSpace = true)
         {
             // Update the transform.
-            m_transform.Update(pose);
+            m_transform.Update({pose}, isViewSpace);
         }
 
         void Update(XRRigidTransform* transform)
