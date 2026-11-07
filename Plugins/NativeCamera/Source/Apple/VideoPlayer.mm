@@ -301,6 +301,9 @@ namespace Babylon::Plugins
     {
         m_state->invalid.store(true);
         [m_state->observer stopObserving];
+        // The observer also owns State. Release it after removing KVO so the
+        // player and decoded-frame resources can be freed once in-flight work ends.
+        m_state->observer = nil;
         if (m_state->endObserverToken)
         {
             [[NSNotificationCenter defaultCenter] removeObserver:m_state->endObserverToken];
